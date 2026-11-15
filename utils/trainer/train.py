@@ -113,9 +113,9 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
                 if same_shape and forward_graph is None and micro_batches > GRAPH_WARMUP_UPDATES * accumulation_steps and (micro_batches - 1) % accumulation_steps == 0:
                     forward_graph = torch.cuda.CUDAGraph()
                     update_graph  = torch.cuda.CUDAGraph()
-                    with torch.cuda.graph(forward_graph):
+                    with torch.cuda.graph(forward_graph, capture_error_mode="thread_local"):
                         _train_forward_backward(config, model, teacher, components, static, totals)
-                    with torch.cuda.graph(update_graph, pool=forward_graph.pool()):
+                    with torch.cuda.graph(update_graph, pool=forward_graph.pool(), capture_error_mode="thread_local"):
                         _train_update(config, model, components)
                 
                 # Run the micro-batch, by the CUDA graph or eagerly

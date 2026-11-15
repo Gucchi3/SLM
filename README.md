@@ -44,6 +44,8 @@ python main.py --config .\config\hotaru.json
 - **Yokoyama**
 - **Hotaru**
 
+Hotaru は Yokoyama ベース。モデル設定はコード内の定数（`MAX_LENGTH = 256`、`EPSILON = 1e-5` など）。`data.max_length` は256以下に設定します。
+
 ## 測定可能なベンチマーク
 >[!NOTE]
 >`./utils/validator/benchmark.py`を参照
@@ -89,9 +91,5 @@ $$
 - 未実行の項目は分子・分母から除外。4項目中2項目以上で `int_index` と `open_slm_avg` を算出。
 - Avg = 変換前のスコアの単純平均。
 
-## テスト
-
-```powershell
-uv pip install --python .venv -r pyproject.toml --extra test
-.venv\Scripts\python -m pytest
-```
+## Q＆A
+  Use AI.

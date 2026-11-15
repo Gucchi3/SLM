@@ -29,7 +29,7 @@
         "eval_interval"     : 1000,
         "accumulation_steps": 1,
         "max_grad_norm"     : 1.0,
-        "cuda_graph"        : true,
+        "cuda_graph"        : false,
         "log_interval"      : 20,
         "resume"            : null,
         "loss": {
