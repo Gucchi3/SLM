@@ -47,7 +47,7 @@ MODEL_REGISTRY: dict[str, type[nn.Module] | HybridSpec] = {
 
 
 
-def build_model(name: str, checkpoint: str | None, loop: SimpleNamespace | None) -> nn.Module:
+def build_model(name: str, checkpoint: str | None, loop: SimpleNamespace | None = None) -> nn.Module:
     '''
     #* Make the model for the name (with the loop settings for a hybrid model), and load the weights when a checkpoint is given.
     #? Called from utils/trainer/pipeline.py for the student and the teacher, and from utils/validator/load.py.
