@@ -13,7 +13,7 @@
         "batch_size"           : 32,
         "num_workers"          : 8,
         "max_length"           : 1024,
-        "tokenizer_dir"        : "model/weight/hotaru"    ,
+        "tokenizer_dir"        : "model/weight/hotaru",
         "teacher_tokenizer_dir": null
     },
     "model": {
