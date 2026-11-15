@@ -44,7 +44,6 @@ python main.py --config .\config\hotaru.json
 - **Yokoyama**
 - **Hotaru**
 
-Hotaru は Yokoyama ベース。モデル設定はコード内の定数（`MAX_LENGTH = 256`、`EPSILON = 1e-5` など）。`data.max_length` は256以下に設定します。
 
 ## 測定可能なベンチマーク
 >[!NOTE]
