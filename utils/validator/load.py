@@ -31,7 +31,7 @@ def load_model(config: SimpleNamespace) -> tuple[nn.Module, Tokenizer, torch.dev
     # Load the model with its weights on the device
     setup_seed(config.run.seed)
     device = setup_device(config.run.device)
-    model  = build_model(config.model.name, config.model.checkpoint, getattr(config.model, "loop", None)).to(device=device, dtype=torch.float32).eval()
+    model  = build_model(config.model.name, config.model.checkpoint, getattr(config.model, "spec", None)).to(device=device, dtype=torch.float32).eval()
     if config.model.checkpoint is None:
         Console().print(Text("[Validator] model.checkpoint is null, so the model has random weights.", style="yellow"))
     return model, Tokenizer.from_file(str(tokenizer_path)), device

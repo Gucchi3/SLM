@@ -5,6 +5,7 @@ from torch.nn.utils   import clip_grad_norm_
 from torch.utils.data import DataLoader
 from types            import SimpleNamespace
 
+import random
 import torch
 import torch.nn as nn
 
@@ -21,17 +22,18 @@ LOSS_DISTILL_COMPILED = torch.compile(loss_distill)
 
 
 
-def _train_forward_backward(config: SimpleNamespace, model: nn.Module, teacher: nn.Module | None, components: TrainingComponents, inputs: dict[str, torch.Tensor], totals: dict[str, torch.Tensor]) -> None:
+def _train_forward_backward(config: SimpleNamespace, model: nn.Module, teacher: nn.Module | None, components: TrainingComponents, inputs: dict[str, torch.Tensor], totals: dict[str, torch.Tensor], times: int | None) -> None:
     '''
     #* Run the forward and backward pass of one micro-batch, and add its label loss and accuracy to the totals.
     #? Called from train_steps(), both eagerly and inside the CUDA graph capture.
     #! Do not read tensor values on the CPU here. A CUDA graph cannot hold that.
+    #! times はループの周回数 (hybrid の loop.times_train から選んだもの)。None なら model に渡さず、モデルの決まった回数で通す。
     '''
     
     # Run the student, with BF16 AMP on CUDA (no cast cache, for the CUDA graph)
     device_type = inputs["input_ids"].device.type
     with torch.autocast(device_type=device_type, dtype=torch.bfloat16, enabled=device_type == "cuda", cache_enabled=False):
-        logits = model(inputs["input_ids"], inputs["attention_mask"])
+        logits = model(inputs["input_ids"], inputs["attention_mask"]) if times is None else model(inputs["input_ids"], inputs["attention_mask"], times=times)
     
     # Compute the loss against the labels
     label_fn                   = LOSS_LABEL_COMPILED if config.train.compile and device_type == "cuda" else loss_label
@@ -80,6 +82,8 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
     #! The shapes of the logits and the targets follow the loss kind (see loss_label() in optimization/loss.py). The teacher must give the same shape as the student.
     #! With train.compile on CUDA, model is the compiled model from pipeline.py, and the losses run compiled. The compile happens in the first eager updates, before the CUDA graph capture. Do not use mode="reduce-overhead", which makes CUDA graphs of its own.
     #! With train.cuda_graph on CUDA, the first updates of each call run eagerly. After that, one micro-batch and one update each run as a CUDA graph. Batches of another shape run eagerly.
+    #! モデルが loop_times_train (hybrid の loop.times_train) を持ち空でなければ、重みの更新ごとにその候補から周回数を選ぶ。乱数は run.seed と更新の番号だけで決まるので、再開しても複数の GPU でも同じ数になる。
+    #! 候補が 2 種類以上のときは CUDA Graph を使えない (pipeline.py で止める)。1 種類なら、その回数のままグラフにする。
     '''
     
     # Set training mode, and reset the totals on the device
@@ -89,6 +93,8 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
     side_stream        = torch.cuda.Stream() if use_graph else None
     totals             = {"loss": torch.zeros((), device=device, dtype=torch.float64), "correct": torch.zeros((), device=device, dtype=torch.int64), "counted": torch.zeros((), device=device, dtype=torch.int64)}
     static             = dict[str, torch.Tensor]()
+    choices            = tuple(getattr(model, "loop_times_train", ()))
+    times              = None
     forward_graph      = None
     update_graph       = None
     samples            = 0
@@ -116,12 +122,16 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
                         static[key].copy_(value, non_blocking=True)
                 inputs     = static if same_shape else {key: value.to(device, non_blocking=True) for key, value in batch.items()}
                 
+                # 更新の始めに、その更新で使うループの周回数を選ぶ
+                if choices and (micro_batches - 1) % accumulation_steps == 0:
+                    times = random.Random(config.run.seed * 1_000_003 + state.step).choice(choices)
+                
                 # Capture the CUDA graphs at the start of a cycle, after the warmup updates
                 if same_shape and forward_graph is None and micro_batches > GRAPH_WARMUP_UPDATES * accumulation_steps and (micro_batches - 1) % accumulation_steps == 0:
                     forward_graph = torch.cuda.CUDAGraph()
                     update_graph  = torch.cuda.CUDAGraph()
                     with torch.cuda.graph(forward_graph, capture_error_mode="thread_local"):
-                        _train_forward_backward(config, model, teacher, components, static, totals)
+                        _train_forward_backward(config, model, teacher, components, static, totals, times)
                     with torch.cuda.graph(update_graph, pool=forward_graph.pool(), capture_error_mode="thread_local"):
                         _train_update(config, model, components)
                 
@@ -129,7 +139,7 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
                 if forward_graph is not None and same_shape:
                     forward_graph.replay()
                 else:
-                    _train_forward_backward(config, model, teacher, components, inputs, totals)
+                    _train_forward_backward(config, model, teacher, components, inputs, totals, times)
                 samples += inputs["input_ids"].shape[0]
                 
                 # Update the weights at the end of each cycle, then move the learning rate one step

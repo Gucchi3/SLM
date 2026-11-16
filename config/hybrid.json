@@ -20,14 +20,107 @@
         "teacher_tokenizer_dir": null
     },
     "model": {
-        "name"              : "c3a",
-        "checkpoint"        : null,
-        "teacher_name"      : "c3a",
+        "name"              : "hybrid",   // model/build.py の MODEL_REGISTRY の名前
+        "checkpoint"        : null,       // 学習済みの重み (.pth)。null なら初期値から
+        "teacher_name"      : "hybrid",   // 蒸留 (train.method が distill) の教師
         "teacher_checkpoint": null,
-        "loop"              : {
-            "start": 0,
-            "end"  : 0,
-            "times": 1
+        "teacher_spec"      : null,       // 教師の形。null なら下の spec と同じ。違う形にするなら spec と同じ項目をすべて書く
+        
+        // hybrid モデルの形。すべての項目を書く (省略、知らないキー、選べない値はエラー)
+        // 下の値は標準モデル c3a: 語彙 4096、入力長 1024、GELU、LayerNorm、softmax、RoPE、全体注意 4 頭 x 64 次元、KV 頭 1、カーネル c7 / g4、埋め込み非共有
+        "spec": {
+            // 全体
+            "mixers"    : "ccca",   // ブロック列。c = ゲート付き短畳み込み、g = Gated DeltaNet、a = 全体注意、w = 窓注意 (c3a なら "ccca")
+            "dim"       : 256,      // 残差の次元
+            "vocab_size": 4096,     // 語彙の数 (トークナイザーと合わせる)
+            "max_length": 1024,     // 入力の最大トークン数 (data.max_length 以上にする)
+            
+            // 埋め込みと出力層
+            "embed": {
+                "tie" : false,      // true で出力層と埋め込みの重みを共有する (tie)
+                "rank": 0,          // 2 段埋め込みの中間次元 (emb64 なら 64)。0 で 1 段
+                "pos" : "none"      // none | learned (学習する位置の表を足す。lpos では attn の pos.type を none にする)
+            },
+            
+            // 全体注意 ("a" のブロック)
+            "attn_global": {
+                "heads"   : 4,      // q の頭の数
+                "head_dim": 64,     // 頭 1 つの次元 (偶数)
+                "kv_heads": 1,      // k と v の頭の数 (heads を割り切る数、GQA)
+                "window"  : 0,      // 全体注意では使わないので 0
+                "pos": {
+                    "type" : "rope",    // rope | none (位置で回さない)
+                    "theta": 10000.0,   // RoPE の底 (prope なら 1000000.0)
+                    "part" : 1.0        // 回す次元の割合 (prope なら 0.5)
+                },
+                "qk_norm" : false,      // q と k に頭ごとの RMSNorm を掛ける (qknorm。gate は qk_norm と out_gate head の両方)
+                "score"   : "softmax",  // softmax | sima (softmax を使わない SimA)
+                "out_gate": "none",     // none | head (頭ごとの sigmoid ゲート、sgate) | element (出力の値ごとのゲート)
+                "kv": {
+                    "share": false,     // true でループの 2 周目以降も 1 周目の k と v を使う (kvs)
+                    "mla": {
+                        "enable": false,    // true で k と v を潜在ベクトルから作る (MLA)
+                        "latent": 0         // 潜在ベクトルの次元 (enable が true なら 1 以上)
+                    }
+                }
+            },
+            
+            // 窓注意 ("w" のブロック)。項目は attn_global と同じで、window が 1 以上
+            "attn_window": {
+                "heads"   : 4,
+                "head_dim": 64,
+                "kv_heads": 1,
+                "window"  : 256,    // 直近何トークンを見るか (win256)
+                "pos": {
+                    "type" : "rope",
+                    "theta": 10000.0,
+                    "part" : 1.0
+                },
+                "qk_norm" : false,
+                "score"   : "softmax",
+                "out_gate": "none",
+                "kv": {
+                    "share": false,
+                    "mla": {
+                        "enable": false,
+                        "latent": 0
+                    }
+                }
+            },
+            
+            // ゲート付き短畳み込み ("c" のブロック)
+            "conv": {
+                "kernel": 7         // 畳み込みの幅 (k3 なら 3)
+            },
+            
+            // Gated DeltaNet ("g" のブロック)。状態は heads x head_dim x head_dim
+            "gdn": {
+                "heads"   : 4,      // 頭の数 (h8 なら 8)
+                "head_dim": 32,     // 頭 1 つの次元 (d48 なら 48)
+                "kernel"  : 4       // q、k、v に掛ける短い畳み込みの幅
+            },
+            
+            // 各ブロックの MLP
+            "ffn": {
+                "type"  : "gelu",   // gelu | relu2 | swiglu
+                "hidden": 1024      // 中間の次元
+            },
+            
+            // 正規化
+            "norm": {
+                "type"    : "layer",    // layer | rms | rmsp2 (1 / rms を 2 の累乗に丸める) | dyt (Dynamic Tanh)
+                "sandwich": false       // true でミキサーと MLP の出力にも正規化を掛ける (sandwich、Peri-LN)
+            },
+            
+            // ループ: start から end - 1 番目のブロックを同じ重みで times 回通す ((c3a)x2 なら 0, 4, 2)。times 1 でループなし
+            "loop": {
+                "start"      : 0,
+                "end"        : 0,
+                "times"      : 1,
+                "embed"      : false,   // true で周回ごとのループ埋め込み (学習するベクトル、初期値 0) を周回の前に足す (lemb)
+                "lora_rank"  : 0,       // 1 以上で周回ごとの LoRA を各ブロックの qkv に足す (lora8 なら 8)。0 で無し
+                "times_train": []       // 学習で重みの更新ごとにランダムに選ぶ周回数の候補 (例 [1, 3, 8])。空なら times で固定。2 種類以上なら train.cuda_graph は false にする。評価は times と、候補の数ごとの PPL
+            }
         }
     },
     "train": {

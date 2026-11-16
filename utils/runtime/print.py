@@ -99,6 +99,10 @@ def print_validation(history: list[dict[str, int | float]], steps: int) -> None:
     if record["val_ppl"] == record["best_ppl"]:
         message.append(" (best)", style="bold green")
     
+    # ループの周回数ごとの PPL (学習で周回数をランダムに選ぶときだけ)
+    for key in (key for key in record if key.startswith("val_ppl_x")):
+        message.append(f" | ppl {key.removeprefix('val_ppl_')}={record[key]:.2f}", style="blue")
+    
     # Show the line
     Console().print(message)
     return None

@@ -17,6 +17,7 @@ from types           import SimpleNamespace
 
 import argparse
 import json
+import re
 
 from utils.exceptions import Error
 from utils.runtime    import remove_pycache
@@ -43,10 +44,10 @@ def main() -> None:
     parser.add_argument("--mode"  , choices=list(RUN_REGISTRY), default=None , help="run mode to use instead of run.mode")
     args   = parser.parse_args()
     
-    # Load the config
+    # 設定を読む (文字列の外の // から行末まではコメントとして消す)
     try:
-        with args.config.open(encoding="utf-8") as file:
-            config = json.load(file, object_hook=lambda data: SimpleNamespace(**data))
+        text   = re.sub(r'("(?:\\.|[^"\\])*")|//[^\n]*', lambda match: match.group(1) or "", args.config.read_text(encoding="utf-8"))
+        config = json.loads(text, object_hook=lambda data: SimpleNamespace(**data))
     except (OSError, JSONDecodeError) as error:
         raise Error("Failed to load the config file.", detail=f"{args.config}: {error}", hint="Check the path and the JSON format.", code=1)
     

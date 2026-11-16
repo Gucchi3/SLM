@@ -13,11 +13,12 @@ from .types                     import Metrics, TrainingComponents
 
 
 
-def evaluate_epoch(config: SimpleNamespace, device: torch.device, model: nn.Module, loader: DataLoader, components: TrainingComponents, description: str, low_precision: bool) -> Metrics:
+def evaluate_epoch(config: SimpleNamespace, device: torch.device, model: nn.Module, loader: DataLoader, components: TrainingComponents, description: str, low_precision: bool, times: int | None = None) -> Metrics:
     '''
     #* Find the loss and the accuracy of the model on the loader, without training.
     #? Called from loop.py for validation (low_precision=True, fast BF16), and from pipeline.py for the test (low_precision=False, exact float32).
     #! The batches have the same keys as in train_steps() in train.py. The loss is the mean over the targets that are not skipped.
+    #! times はループの周回数で、None なら model に渡さない (hybrid は loop.times で通す)。
     '''
     
     # Set evaluation mode, and reset the totals on the device
@@ -35,7 +36,8 @@ def evaluate_epoch(config: SimpleNamespace, device: torch.device, model: nn.Modu
             # Run the model, with BF16 AMP on CUDA when low_precision is on
             input_ids = batch["input_ids"].to(device, non_blocking=True)
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=amp_enabled):
-                logits = model(input_ids, batch["attention_mask"].to(device, non_blocking=True))
+                mask   = batch["attention_mask"].to(device, non_blocking=True)
+                logits = model(input_ids, mask) if times is None else model(input_ids, mask, times=times)
             
             # Compute the loss against the labels
             loss, batch_correct, count = loss_label(logits, batch["targets"].to(device, non_blocking=True), components.loss_fn, components.loss_kind)

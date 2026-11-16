@@ -39,6 +39,12 @@ def pipeline_train(config: SimpleNamespace) -> None:
     if config.train.steps < 1 or config.train.eval_interval < 1:
         raise Error("Invalid length of the training.", detail=f"train.steps: {config.train.steps}, train.eval_interval: {config.train.eval_interval}", hint="Use 1 or more for both.", code=30)
     
+    # 学習でループの周回数を 2 種類以上から選ぶときは、CUDA Graph (決まった計算をくり返す) を使えない
+    loop    = getattr(getattr(config.model, "spec", None), "loop", None)
+    choices = sorted(set(getattr(loop, "times_train", None) or []))
+    if len(choices) >= 2 and config.train.cuda_graph:
+        raise Error("CUDA Graph cannot change the number of loops.", detail=f"model.spec.loop.times_train: {choices}, train.cuda_graph: true", hint="Set train.cuda_graph to false, or use one number in model.spec.loop.times_train.", code=43)
+    
     # Set the seed and the device
     setup_seed(config.run.seed)
     device = setup_device(config.run.device)
@@ -51,10 +57,11 @@ def pipeline_train(config: SimpleNamespace) -> None:
         benchmark_check(config)
     
     # Prepare the student, and the frozen teacher for distillation
-    model   = build_model(config.model.name, config.model.checkpoint, getattr(config.model, "loop", None)).to(device=device, dtype=torch.float32)
+    model   = build_model(config.model.name, config.model.checkpoint, getattr(config.model, "spec", None)).to(device=device, dtype=torch.float32)
     teacher = None
     if config.train.method == "distill":
-        teacher = build_model(config.model.teacher_name, config.model.teacher_checkpoint, None).to(device)
+        teacher_spec = getattr(config.model, "teacher_spec", None)
+        teacher      = build_model(config.model.teacher_name, config.model.teacher_checkpoint, getattr(config.model, "spec", None) if teacher_spec is None else teacher_spec).to(device)
         teacher.eval()
         teacher.requires_grad_(False)
     

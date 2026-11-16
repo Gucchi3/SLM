@@ -35,6 +35,9 @@ def loop_train(config: SimpleNamespace, device: torch.device, log_dir: Path, bun
         torch.cuda.empty_cache()
         val_metrics   = evaluate_epoch(config, device, model, bundle.validation_loader, components, "Validation", low_precision=True)
         
+        # 学習で周回数をランダムに選ぶときは、候補の周回数ごとの PPL も測る
+        times_ppl = {f"val_ppl_x{times}": evaluate_epoch(config, device, model, bundle.validation_loader, components, f"Validation x{times}", low_precision=True, times=times).perplexity for times in sorted(set(getattr(model, "loop_times_train", ())))}
+        
         # Save the latest weights, and the best weights by validation perplexity
         torch.save(model.state_dict(), log_dir / "latest.pth")
         if val_metrics.perplexity < state.best_ppl:
@@ -51,6 +54,7 @@ def loop_train(config: SimpleNamespace, device: torch.device, log_dir: Path, bun
             "val_ppl"      : val_metrics.perplexity,
             "val_acc"      : val_metrics.accuracy,
             "best_ppl"     : state.best_ppl,
+            **times_ppl,
         }
         state.history.append(record)
         save_history(log_dir, state.history)
