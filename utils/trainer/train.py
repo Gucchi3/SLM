@@ -14,6 +14,10 @@ from utils.trainer.optimization import loss_distill, loss_label
 from .types                     import Metrics, TrainState, TrainingComponents
 
 GRAPH_WARMUP_UPDATES = 3
+# The label loss and the distillation loss compiled for train.compile (torch.compile does nothing until the first call)
+#! Most of the time of a small model goes to the elementwise work over the vocabulary here (softmax, z-loss), which the compile fuses.
+LOSS_LABEL_COMPILED   = torch.compile(loss_label)
+LOSS_DISTILL_COMPILED = torch.compile(loss_distill)
 
 
 
@@ -30,7 +34,8 @@ def _train_forward_backward(config: SimpleNamespace, model: nn.Module, teacher: 
         logits = model(inputs["input_ids"], inputs["attention_mask"])
     
     # Compute the loss against the labels
-    label_loss, correct, count = loss_label(logits, inputs["targets"], components.loss_fn, components.loss_kind)
+    label_fn                   = LOSS_LABEL_COMPILED if config.train.compile and device_type == "cuda" else loss_label
+    label_loss, correct, count = label_fn(logits, inputs["targets"], components.loss_fn, components.loss_kind)
     loss                       = label_loss
     
     # Mix in the loss against the teacher's softened outputs
@@ -39,7 +44,8 @@ def _train_forward_backward(config: SimpleNamespace, model: nn.Module, teacher: 
             teacher_logits = teacher(inputs.get("teacher_input_ids", inputs["input_ids"]), inputs.get("teacher_attention_mask", inputs["attention_mask"]))
         temperature = config.train.distillation.temperature
         alpha       = config.train.distillation.alpha
-        soft_loss   = loss_distill(logits, teacher_logits, inputs["targets"], components.loss_kind, temperature)
+        distill_fn  = LOSS_DISTILL_COMPILED if config.train.compile and device_type == "cuda" else loss_distill
+        soft_loss   = distill_fn(logits, teacher_logits, inputs["targets"], components.loss_kind, temperature)
         loss        = (1 - alpha) * label_loss + alpha * temperature**2 * soft_loss
     
     # Add the gradients, scaled so that one cycle of micro-batches gives their mean
@@ -72,6 +78,7 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
     #! The train data starts at micro-batch state.batch of epoch state.epoch (through train_sampler), and state.step, state.epoch, and state.batch move with the training.
     #! Each batch is a dict of input_ids, attention_mask, and targets (-100 to skip). Add teacher_input_ids and teacher_attention_mask when the teacher uses another tokenizer.
     #! The shapes of the logits and the targets follow the loss kind (see loss_label() in optimization/loss.py). The teacher must give the same shape as the student.
+    #! With train.compile on CUDA, model is the compiled model from pipeline.py, and the losses run compiled. The compile happens in the first eager updates, before the CUDA graph capture. Do not use mode="reduce-overhead", which makes CUDA graphs of its own.
     #! With train.cuda_graph on CUDA, the first updates of each call run eagerly. After that, one micro-batch and one update each run as a CUDA graph. Batches of another shape run eagerly.
     '''
     

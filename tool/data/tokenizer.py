@@ -23,11 +23,12 @@ def build_bytelevel_bpe_tokenizer(vocab_size: int, special_tokens: list[str]) ->
     '''
     #* Make a byte-level BPE tokenizer and its trainer, for languages with spaces between words, such as English.
     #! Any text can be encoded, because the base vocabulary has all 256 bytes.
+    #! Each digit is its own piece before BPE, so a number is always split into single digits (123 -> 1 2 3). This keeps the places of the digits the same for arithmetic.
     #! For Japanese, add another type. This one makes a long run of text without spaces into one piece before BPE, which works badly.
     '''
     
     tokenizer               = Tokenizer(models.BPE())
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    tokenizer.pre_tokenizer = pre_tokenizers.Sequence([pre_tokenizers.Digits(individual_digits=True), pre_tokenizers.ByteLevel(add_prefix_space=False)])
     tokenizer.decoder       = decoders.ByteLevel()
     trainer                 = trainers.BpeTrainer(vocab_size=vocab_size, special_tokens=special_tokens, initial_alphabet=pre_tokenizers.ByteLevel.alphabet())
     return tokenizer, trainer

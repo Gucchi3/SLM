@@ -57,6 +57,7 @@ def print_metadata(config: SimpleNamespace) -> None:
     table.add_row("Accumulation Steps"   , str(config.train.accumulation_steps)             )
     table.add_row("Max Gradient Norm"    , str(config.train.max_grad_norm)                  )
     table.add_row("CUDA Graph"           , str(config.train.cuda_graph)                     )
+    table.add_row("Compile"              , str(config.train.compile)                        )
     table.add_row("Loss"                 , config.train.loss.name                           )
     table.add_row("Optimizer"            , config.train.optimizer.name                      )
     table.add_row("Learning Rate"        , str(config.train.optimizer.learning_rate)        )

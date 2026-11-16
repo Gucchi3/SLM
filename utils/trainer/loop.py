@@ -16,12 +16,13 @@ from .types        import TrainState, TrainingComponents
 
 
 
-def loop_train(config: SimpleNamespace, device: torch.device, log_dir: Path, bundle: DataBundle, model: nn.Module, teacher: nn.Module | None, components: TrainingComponents, state: TrainState) -> None:
+def loop_train(config: SimpleNamespace, device: torch.device, log_dir: Path, bundle: DataBundle, model: nn.Module, train_model: nn.Module, teacher: nn.Module | None, components: TrainingComponents, state: TrainState) -> None:
     '''
     #* Train until train.steps weight updates. Every train.eval_interval updates and at the last one, validate, and save the weights, the history, the graph, and the training state.
     #? Called from pipeline.py. Uses train_steps() in train.py and evaluate_epoch() in evaluate.py.
     #! state says where to start: the first step, or the place saved in train_state.pt for train.resume. A resumed run starts again from the last validation.
     #! best.pth keeps the weights with the lowest validation perplexity. Pass a teacher only for distillation.
+    #! train_model is model itself, or model compiled for train.compile (same weights). Only the training uses it. The validation and the saving use model, so the weights have no compile prefix and the last batch of another shape is not compiled again.
     #! The empty_cache() before the validation lowers the peak of GPU memory (and of the Windows memory commit). It does not change the results.
     '''
     
@@ -29,7 +30,7 @@ def loop_train(config: SimpleNamespace, device: torch.device, log_dir: Path, bun
     while state.step < config.train.steps:
         # Train until the next multiple of eval_interval or the last step, then validate
         updates       = min(config.train.eval_interval - state.step % config.train.eval_interval, config.train.steps - state.step)
-        train_metrics = train_steps(config, device, model, teacher, bundle.train_loader, bundle.train_sampler, components, state, updates)
+        train_metrics = train_steps(config, device, train_model, teacher, bundle.train_loader, bundle.train_sampler, components, state, updates)
         # Give back the memory of the CUDA graphs that train_steps() let go. It is not used again, and stays until the next capture
         torch.cuda.empty_cache()
         val_metrics   = evaluate_epoch(config, device, model, bundle.validation_loader, components, "Validation", low_precision=True)

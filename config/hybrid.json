@@ -8,10 +8,10 @@
     "data": {
         "name"                 : "pretrain",
         "sources"              : [
-            {"root": "data/tinystories", "repeat": 1.0},
-            {"root": "data/fineweb_edu", "repeat": 1.0},
-            {"root": "data/cosmopedia" , "repeat": 1.0},
-            {"root": "data/finemath"   , "repeat": 1.0}
+            {"root": "data/tinystories", "repeat": 2.0 },
+            {"root": "data/fineweb_edu", "repeat": 1.0 },
+            {"root": "data/cosmopedia" , "repeat": 0.22},
+            {"root": "data/finemath"   , "repeat": 0.32}
         ],
         "batch_size"           : 32,
         "num_workers"          : 8,
@@ -33,10 +33,11 @@
     "train": {
         "method"            : "normal",
         "steps"             : 19054,
-        "eval_interval"     : 1000,
+        "eval_interval"     : 2000,
         "accumulation_steps": 8,
         "max_grad_norm"     : 1.0,
         "cuda_graph"        : true,
+        "compile"           : true,
         "log_interval"      : 20,
         "resume"            : null,
         "loss": {

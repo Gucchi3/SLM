@@ -59,6 +59,9 @@ def pipeline_train(config: SimpleNamespace) -> None:
         teacher.eval()
         teacher.requires_grad_(False)
     
+    # Compile the student for training only (it shares the weights, so saving, loading, and the optimizer use model as before)
+    train_model = torch.compile(model) if config.train.compile and device.type == "cuda" else model
+    
     # Build the loss, optimizer, and scheduler (the scheduler moves one step at each weight update)
     loss_fn, loss_kind = build_loss_fn(config)
     optimizer          = build_optimizer(config, model)
@@ -84,7 +87,7 @@ def pipeline_train(config: SimpleNamespace) -> None:
     remove_pycache()
     
     # Train, then load the best weights (the lowest validation perplexity)
-    loop_train(config, device, log_dir, bundle, model, teacher, components, state)
+    loop_train(config, device, log_dir, bundle, model, train_model, teacher, components, state)
     best_path = log_dir / "best.pth"
     if not best_path.exists():
         raise Error("There are no best weights.", detail=f"Missing: {best_path}", hint="The validation perplexity was never a finite number. Check the learning rate and the data, then train again.", code=37)
