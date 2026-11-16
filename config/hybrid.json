@@ -8,7 +8,10 @@
     "data": {
         "name"                 : "pretrain",
         "sources"              : [
-            {"root": "data/fineweb_edu", "repeat": 1.0}
+            {"root": "data/tinystories", "repeat": 1.0},
+            {"root": "data/fineweb_edu", "repeat": 1.0},
+            {"root": "data/cosmopedia" , "repeat": 1.0},
+            {"root": "data/finemath"   , "repeat": 1.0}
         ],
         "batch_size"           : 32,
         "num_workers"          : 8,
