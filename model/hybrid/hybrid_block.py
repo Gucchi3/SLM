@@ -1,6 +1,5 @@
 # @file hybrid_block.py
 # @brief One block of the hybrid model: a token mixer (short convolution, Gated DeltaNet, or attention) and an MLP, each after a norm
-# @author Kohei Yamaguchi, Claude
 
 from torch    import nn
 from torch.nn import functional as F

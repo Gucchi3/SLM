@@ -1,6 +1,5 @@
 # @file pipeline.py
 # @brief Training pipeline
-# @author Kohei Yamaguchi, Claude
 
 from pathlib      import Path
 from rich.console import Console

@@ -1,6 +1,5 @@
 # @file load.py
 # @brief Load a trained model, its weights, and its tokenizer for the validator
-# @author Kohei Yamaguchi, Claude
 
 from pathlib      import Path
 from rich.console import Console

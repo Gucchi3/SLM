@@ -1,6 +1,5 @@
 # @file types.py
 # @brief The shape of a hybrid model and the settings of its loop
-# @author Kohei Yamaguchi, Claude
 
 from dataclasses import dataclass
 from typing      import Literal

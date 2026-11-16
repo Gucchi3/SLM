@@ -1,6 +1,5 @@
 # @file gated_delta.py
 # @brief The gated delta rule (Gated DeltaNet) over a whole sequence, computed in chunks with PyTorch only
-# @author Kohei Yamaguchi, Claude
 
 import torch
 

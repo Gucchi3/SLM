@@ -14,6 +14,7 @@ from typing             import Literal
 import argparse
 import hashlib
 import json
+import multiprocessing
 import numpy as np
 import os
 
@@ -27,15 +28,16 @@ CorpusReader   = Callable[[Path], Iterator[CorpusItem]]
 CorpusDownload = Callable[[Path], None]
 Corpora        = dict[str, tuple[CorpusDownload, CorpusReader]]
 
-SPECIAL_TOKENS = ("<pad>", "<eos>", "<user>", "<bot>")
-EOS_ID         = 1
-USER_ID        = 2
-BOT_ID         = 3
-SPLIT_NAMES    = ("train", "validation", "test")
-STAGES         = ("download", "split", "tokenizer", "binarize", "all")
-ENCODE_BATCH   = 1000
-ENCODE_WORKERS = os.cpu_count() or 1
-CHARS_PER_GB   = 10**9
+SPECIAL_TOKENS         = ("<pad>", "<eos>", "<user>", "<bot>")
+EOS_ID                 = 1
+USER_ID                = 2
+BOT_ID                 = 3
+SPLIT_NAMES            = ("train", "validation", "test")
+STAGES                 = ("download", "split", "tokenizer", "binarize", "all")
+ENCODE_BATCH           = 1000
+ENCODE_WORKERS         = min(os.cpu_count() or 1, 16)
+ENCODE_TASKS_PER_CHILD = 100
+CHARS_PER_GB           = 10**9
 
 # The IDs put before and after the IDs of a text of each role
 ROLE_TOKENS: dict[Role, tuple[list[int], list[int]]] = {
@@ -117,6 +119,9 @@ def binarize_corpus(name: str, data_dir: Path, tokenizer_dir: Path, read: Corpus
     #! Each text is encoded alone and joined to the role tokens by IDs, so the result does not depend on how the tokenizer treats spaces or the language.
     #! Run split_corpus() first. The tokenizer in tokenizer_dir is used as it is, so an existing tokenizer also works. The files get their names only when all items are written.
     #! ENCODE_WORKERS processes encode the items, ENCODE_BATCH items at a time. Each uses one thread (TOKENIZERS_PARALLELISM=false, which the new processes get). One process with many threads used only one or two CPU cores on Windows.
+    #! The encoding in tokenizers keeps about 7 MB per batch in a worker and never gives it back. So each worker is replaced by a new one after ENCODE_TASKS_PER_CHILD batches, and the memory of a worker stays near 1.5 GB.
+    #! With max_tasks_per_child, ProcessPoolExecutor uses spawn unless it is given a start method. So the default one is given (forkserver on Linux, spawn on Windows), and a new worker starts fast without importing the modules again.
+    #! ENCODE_WORKERS is at most 16, so that the workers do not use up the memory on a machine with many CPU cores.
     '''
     
     # Read the split and the tokenizer
@@ -138,7 +143,7 @@ def binarize_corpus(name: str, data_dir: Path, tokenizer_dir: Path, read: Corpus
     # Encode the batches in the worker processes, and write the results in the order of the items. map() reads the items only buffersize batches ahead, so the memory stays small
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     try:
-        with ProcessPoolExecutor(ENCODE_WORKERS) as pool:
+        with ProcessPoolExecutor(ENCODE_WORKERS, mp_context=multiprocessing.get_context(), max_tasks_per_child=ENCODE_TASKS_PER_CHILD) as pool:
             batches = batched(zip(read(data_dir / "raw"), split, strict=True), ENCODE_BATCH)
             for ids_by_split, starts_by_split, batch_roles in pool.map(partial(_corpus_encode, str(tokenizer_path)), batches, buffersize=2 * ENCODE_WORKERS):
                 # Write the IDs and the starts of the items of each split. The starts in the batch move by the tokens written before

@@ -1,6 +1,5 @@
 # @file hybrid_lm.py
 # @brief The hybrid language model: embedding, the blocks of HybridSpec.mixers (with a loop over some of them), a final norm, and an output layer
-# @author Kohei Yamaguchi, Claude
 
 from torch  import nn
 from typing import cast
