@@ -71,10 +71,9 @@ def build_model(name: str, checkpoint: str | None, loop: SimpleNamespace | None 
         if unknown:
             raise Error("Unknown key in model.loop.", detail=f"keys: {', '.join(unknown)}\nAvailable: {', '.join(keys)}", hint="Fix the key names in model.loop.", code=40)
         settings = LoopSpec(**vars(loop))
-    blocks   = len(entry.mixers) if isinstance(entry, HybridSpec) else 0
-    is_fixed = settings.train_min == 0 and settings.train_max == 0
-    if not (0 <= settings.start <= settings.end <= blocks and settings.times >= 1 and settings.backprop >= 0 and (is_fixed or 1 <= settings.train_min <= settings.train_max)):
-        raise Error("Invalid model.loop.", detail=f"model.loop: {settings}\nblocks: {blocks}", hint="Use 0 <= start <= end <= blocks, times >= 1, backprop >= 0, and 1 <= train_min <= train_max (or both 0 for a fixed number).", code=41)
+    blocks = len(entry.mixers) if isinstance(entry, HybridSpec) else 0
+    if not (0 <= settings.start <= settings.end <= blocks and settings.times >= 1):
+        raise Error("Invalid model.loop.", detail=f"model.loop: {settings}\nblocks: {blocks}", hint="Use 0 <= start <= end <= blocks and times >= 1.", code=41)
     
     # Make the model
     model = HybridLm(entry, settings) if isinstance(entry, HybridSpec) else entry()

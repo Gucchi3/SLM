@@ -25,14 +25,9 @@
         "teacher_name"      : "c3a",
         "teacher_checkpoint": null,
         "loop"              : {
-            "start"    : 0,
-            "end"      : 0,
-            "times"    : 1,
-            "train_min": 0,
-            "train_max": 0,
-            "reinject" : false,
-            "backprop" : 0,
-            "kv_share" : false
+            "start": 0,
+            "end"  : 0,
+            "times": 1
         }
     },
     "train": {

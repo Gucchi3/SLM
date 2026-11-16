@@ -61,19 +61,17 @@ class HybridBlock(nn.Module):
                 nn.init.normal_(module.weight, std=0.02)
         return None
     
-    def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor], kv: tuple[torch.Tensor, torch.Tensor] | None) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
+    def forward(self, x: torch.Tensor, rope: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         '''
-        #* Return the block output for x (batch x tokens x dim), and the k and v that the attention used (None for "c" and "g").
+        #* Return the block output for x (batch x tokens x dim).
         #? Called from HybridLm.forward() in hybrid_lm.py.
         #! rope is (cos, sin) of shape (tokens, head_dim / 2). Each token sees only itself and the tokens before it.
-        #! kv, when given, is used by the attention in place of its own k and v (the loop with kv_share gives the k and v of the first pass). The "c" and "g" blocks do not use it.
         '''
         
         # The qkv output
         batch, tokens, dim = x.shape
         spec               = self.spec
         qkv                = self.qkv(self.norm1(x))
-        used               = None
         
         # Gated short convolution: (B x h) through a causal depthwise convolution over time (padded on the left), then times C
         if self.mixer == "c":
@@ -102,12 +100,8 @@ class HybridBlock(nn.Module):
             cos, sin          = rope
             q                 = qkv[..., :heads * hd].view(batch, tokens, heads, hd).transpose(1, 2)
             q                 = torch.cat((q[..., 0::2] * cos - q[..., 1::2] * sin, q[..., 0::2] * sin + q[..., 1::2] * cos), dim=-1)
-            if kv is None:
-                k, v = qkv[..., heads * hd:].view(batch, tokens, 2 * groups, hd).transpose(1, 2).split([groups, groups], dim=1)
-                k    = torch.cat((k[..., 0::2] * cos - k[..., 1::2] * sin, k[..., 0::2] * sin + k[..., 1::2] * cos), dim=-1)
-                kv   = (k, v)
-            k, v = kv
-            used = kv
+            k, v              = qkv[..., heads * hd:].view(batch, tokens, 2 * groups, hd).transpose(1, 2).split([groups, groups], dim=1)
+            k                 = torch.cat((k[..., 0::2] * cos - k[..., 1::2] * sin, k[..., 0::2] * sin + k[..., 1::2] * cos), dim=-1)
             if self.mixer == "w":
                 index    = torch.arange(tokens, device=x.device)
                 mask     = (index[None, :] <= index[:, None]) & (index[None, :] > index[:, None] - spec.window)
@@ -124,4 +118,4 @@ class HybridBlock(nn.Module):
             h        = F.silu(gate) * up
         else:
             h = F.relu(h) ** 2 if spec.mlp == "relu2" else F.gelu(h)
-        return x + self.out(h), used
+        return x + self.out(h)

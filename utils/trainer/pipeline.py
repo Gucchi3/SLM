@@ -52,11 +52,8 @@ def pipeline_train(config: SimpleNamespace) -> None:
         benchmark_check(config)
     
     # Prepare the student, and the frozen teacher for distillation
-    loop    = getattr(config.model, "loop", None)
-    model   = build_model(config.model.name, config.model.checkpoint, loop).to(device=device, dtype=torch.float32)
+    model   = build_model(config.model.name, config.model.checkpoint, getattr(config.model, "loop", None)).to(device=device, dtype=torch.float32)
     teacher = None
-    if config.train.cuda_graph and loop is not None and getattr(loop, "train_max", 0) > 0:
-        raise Error("A random number of loops does not work with the CUDA graph.", detail=f"model.loop.train_min: {loop.train_min}, model.loop.train_max: {loop.train_max}", hint="Set train.cuda_graph to false, or set train_min and train_max to 0.", code=42)
     if config.train.method == "distill":
         teacher = build_model(config.model.teacher_name, config.model.teacher_checkpoint, None).to(device)
         teacher.eval()

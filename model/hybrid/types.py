@@ -40,18 +40,11 @@ class HybridSpec:
 @dataclass(frozen=True)
 class LoopSpec:
     '''
-    #* Hold the settings of the loop: the blocks from start to end - 1 run times times with the same weights.
+    #* Hold the settings of the loop: the blocks from start to end - 1 run times times with the same weights, in training and in evaluation.
     #? Read from config.model.loop by build_model() in model/build.py, and given to HybridLm.
-    #! In training, the loop runs a random number of times from train_min to train_max (both 0 means always times). In evaluation it runs times times.
-    #! reinject adds the input of the loop again at the start of each pass after the first. backprop above 0 lets only the last backprop passes learn (the earlier passes run without gradients).
-    #! kv_share makes each attention block in the loop use the k and v of its first pass in the later passes, so the KV cache does not grow with the passes.
+    #! times 1 (the default) runs each block once, the same as no loop.
     '''
     
-    start    : int  = 0
-    end      : int  = 0
-    times    : int  = 1
-    train_min: int  = 0
-    train_max: int  = 0
-    reinject : bool = False
-    backprop : int  = 0
-    kv_share : bool = False
+    start: int = 0
+    end  : int = 0
+    times: int = 1
