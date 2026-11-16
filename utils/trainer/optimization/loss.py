@@ -1,12 +1,12 @@
 # @file loss.py
-# @brief Build a loss function, and compute the label loss and the distillation loss
+# @brief 損失関数を作り、正解との損失と蒸留の損失を計算する
 
 ##########################################################
 '''
-Add a loss function
-1. Make a loss class that inherits from nn.Module, and returns one loss for each target with reduction="none".
-2. Add "name: (class, kind)" to LOSS_REGISTRY. kind is "softmax" (one class for each target) or "sigmoid" (a yes or no for each target).
-3. Set config.train.loss.name to that name.
+損失関数の追加
+1. nn.Module を継承し、reduction="none" で正解ごとに 1 つの損失を返す損失のクラスを作る。
+2. LOSS_REGISTRY に "名前: (クラス, 種類)" を足す。種類は "softmax" (正解ごとにクラスが 1 つ) か "sigmoid" (正解ごとにはい/いいえ)。
+3. config.train.loss.name をその名前にする。
 '''
 ##########################################################
 
@@ -34,18 +34,18 @@ LOSS_REGISTRY: dict[str, tuple[type[nn.Module], LossKind]] = {
 
 def build_loss_fn(config: SimpleNamespace) -> tuple[nn.Module, LossKind]:
     '''
-    #* Make the loss function for config.train.loss.name, and return it with its kind.
-    #? Called from utils/trainer/pipeline.py.
-    #! The other keys in config.train.loss go to the loss class (such as label_smoothing). reduction is always "none", because loss_label() skips the targets of -100.
+    #* config.train.loss.name の損失関数を作り、その種類と一緒に返す。
+    #? utils/trainer/pipeline.py から呼ぶ。
+    #! config.train.loss のほかのキーは損失のクラスに渡す (label_smoothing など)。loss_label() が -100 の正解を飛ばすので、reduction は常に "none"。
     '''
     
-    # Check the name
+    # 名前を確かめる
     options = vars(config.train.loss).copy()
     name    = options.pop("name")
     if name not in LOSS_REGISTRY:
         raise Error("Unknown loss.", detail=f"train.loss.name: {name!r}\nAvailable: {', '.join(LOSS_REGISTRY)}", hint="Add the loss to LOSS_REGISTRY in utils/trainer/optimization/loss.py.", code=10)
     
-    # Make the loss that returns one value for each target
+    # 正解ごとに 1 つの値を返す損失を作る
     loss_class, kind     = LOSS_REGISTRY[name]
     options["reduction"] = "none"
     return loss_class(**options), kind
@@ -53,23 +53,23 @@ def build_loss_fn(config: SimpleNamespace) -> tuple[nn.Module, LossKind]:
 
 def loss_label(logits: torch.Tensor, targets: torch.Tensor, loss_fn: nn.Module, kind: LossKind) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     '''
-    #* Return the mean loss against the labels, the number of correct targets, and the number of targets, skipping the targets of -100.
-    #? Called from utils/trainer/epoch.py for training and evaluation.
-    #! softmax: targets are class numbers, and logits have one more dimension (classes) than targets. sigmoid: targets are 0 or 1, and logits have the same shape as targets.
-    #! No value is read on the CPU, so this works inside a CUDA graph.
+    #* -100 の正解を飛ばして、正解との平均の損失、当たった正解の数、正解の数を返す。
+    #? utils/trainer/ の train.py (学習) と evaluate.py (評価) から呼ぶ。
+    #! softmax: targets はクラスの番号で、logits は targets より 1 つ次元 (クラス) が多い。sigmoid: targets は 0 か 1 で、logits は targets と同じ形。
+    #! CPU で値を読まないので、CUDA グラフの中でも動く。
     '''
     
-    # Flatten to one row for each target
+    # 正解ごとに 1 行になるよう平らにする
     flat_logits  = logits.flatten(0, -2).float() if kind == "softmax" else logits.flatten().float()
     flat_targets = targets.flatten()
     valid        = flat_targets != IGNORE_INDEX
     count        = valid.sum()
     
-    # Mean loss over the targets that are not skipped (the skipped targets become 0 for BCE, and are masked out)
+    # 飛ばさない正解についての平均の損失 (飛ばす正解は BCE では 0 にしてから、マスクで除く)
     loss_targets = flat_targets if kind == "softmax" else flat_targets.float().clamp(min=0)
     loss         = (loss_fn(flat_logits, loss_targets) * valid).sum() / count.clamp(min=1)
     
-    # Count the correct targets: the largest class for softmax, and the side of 0 for sigmoid
+    # 当たった正解を数える: softmax は一番大きいクラス、sigmoid は 0 のどちら側か
     matched = flat_logits.argmax(dim=-1) == flat_targets if kind == "softmax" else (flat_logits > 0) == (flat_targets > 0.5)
     correct = (matched & valid).sum()
     return loss, correct, count
@@ -77,18 +77,18 @@ def loss_label(logits: torch.Tensor, targets: torch.Tensor, loss_fn: nn.Module, 
 
 def loss_distill(logits: torch.Tensor, teacher_logits: torch.Tensor, targets: torch.Tensor, kind: LossKind, temperature: float) -> torch.Tensor:
     '''
-    #* Return the mean distillation loss between the student and the teacher, softened by the temperature, skipping the targets of -100.
-    #? Called from utils/trainer/epoch.py.
-    #! softmax: KL divergence of the class probabilities. sigmoid: BCE against the teacher's yes probability of each target.
-    #! The teacher logits must have the same shape as the student logits. Multiply the result by temperature² to keep the gradient size.
+    #* -100 の正解を飛ばして、温度でやわらげた生徒と教師の間の平均の蒸留損失を返す。
+    #? utils/trainer/train.py から呼ぶ。
+    #! softmax: クラスの確率の KL ダイバージェンス。sigmoid: 正解ごとの教師の「はい」の確率に対する BCE。
+    #! 教師のロジットは生徒のロジットと同じ形にする。勾配の大きさを保つため、結果には temperature² を掛ける。
     '''
     
-    # Flatten to one row for each target
+    # 正解ごとに 1 行になるよう平らにする
     flat_student = (logits.flatten(0, -2) if kind == "softmax" else logits.flatten()).float() / temperature
     flat_teacher = (teacher_logits.flatten(0, -2) if kind == "softmax" else teacher_logits.flatten()).float() / temperature
     valid        = targets.flatten() != IGNORE_INDEX
     
-    # Loss of each target, then the mean over the targets that are not skipped
+    # 正解ごとの損失を求め、飛ばさない正解について平均する
     if kind == "softmax":
         soft_by_target = F.kl_div(flat_student.log_softmax(dim=-1), flat_teacher.log_softmax(dim=-1), reduction="none", log_target=True).sum(dim=-1)
     else:

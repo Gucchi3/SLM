@@ -1,5 +1,5 @@
 # @file exceptions.py
-# @brief Error class with error details
+# @brief 詳細付きのエラーのクラス
 
 from rich.console import Console
 from rich.text    import Text
@@ -8,23 +8,23 @@ from rich.text    import Text
 
 class Error(SystemExit):
     '''
-    #* Show an error message with its details and hint, then stop the program with the error code.
-    #! Give each error its own code. Do not use the same code twice.
-    #! Pass detail, hint, and code as keyword arguments, such as Error("Invalid device.", detail=f"run.device: {device!r}", hint="Use auto, cpu, or cuda.", code=4).
+    #* エラーのメッセージを詳細とヒント付きで表示し、エラー番号でプログラムを止める。
+    #! エラーごとに別の番号を付ける。同じ番号を 2 回使わない。
+    #! detail、hint、code はキーワード引数で渡す (例: Error("Invalid device.", detail=f"run.device: {device!r}", hint="Use auto, cpu, or cuda.", code=4))。
     '''
     
     def __init__(self, message: str, *, detail: str | None = None, hint: str | None = None, code: int) -> None:
         '''
-        #* Keep the details, and show them on stderr without a traceback.
+        #* 詳細を覚え、トレースバック無しで stderr に表示する。
         '''
         
-        # Keep the details and the exit code
+        # 詳細と終了コードを覚える
         super().__init__(code)
         self.message = message
         self.detail  = detail
         self.hint    = hint
         
-        # Show the error on stderr
+        # エラーを stderr に表示する
         console = Console(stderr=True)
         console.print(Text(f"[ERROR] {message}", style="bold red"))
         if detail is not None:
@@ -36,8 +36,8 @@ class Error(SystemExit):
     @staticmethod
     def show_interrupted() -> None:
         '''
-        #* Show a message on stderr when Ctrl+C is pressed.
-        #? Called from main.py.
+        #* Ctrl+C が押されたときに、stderr にメッセージを表示する。
+        #? main.py から呼ぶ。
         '''
         
         Console(stderr=True).print(Text("[Stopped] The user stopped the program."))

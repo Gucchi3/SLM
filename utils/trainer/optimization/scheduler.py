@@ -1,12 +1,12 @@
 # @file scheduler.py
-# @brief Build a scheduler
+# @brief スケジューラーを作る
 
 ##########################################################
 '''
-Add a scheduler
-1. Write build_xxx_scheduler(config, optimizer, total_steps) to return an LRScheduler. It moves one step at each weight update.
-2. Add "name: build_xxx_scheduler" to SCHEDULER_REGISTRY.
-3. Set config.train.scheduler.name to that name.
+スケジューラーの追加
+1. LRScheduler を返す build_xxx_scheduler(config, optimizer, total_steps) を書く。重みを更新するたびに 1 ステップ進む。
+2. SCHEDULER_REGISTRY に "名前: build_xxx_scheduler" を足す。
+3. config.train.scheduler.name をその名前にする。
 '''
 ##########################################################
 
@@ -25,33 +25,33 @@ SchedulerBuilder = Callable[[SimpleNamespace, Optimizer, int], LRScheduler]
 
 def build_cosine_annealing_scheduler(config: SimpleNamespace, optimizer: Optimizer, total_steps: int) -> LRScheduler:
     '''
-    #* Make a scheduler that raises the learning rate in a straight line for warmup_steps, then lowers it along a cosine to the minimum at the last step.
-    #! The learning rate in the config is the top value after the warmup. One step is one weight update (not one batch, with gradient accumulation).
+    #* 学習率を warmup_steps の間は直線で上げ、その後はコサインに沿って最後のステップで最小値まで下げるスケジューラーを作る。
+    #! config の学習率は、ウォームアップ後の一番上の値。1 ステップは重みの更新 1 回 (勾配を蓄積するときは、バッチ 1 つではない)。
     '''
     
-    # Read the settings
+    # 設定を読む
     warmup_steps  = config.train.scheduler.warmup_steps
     minimum_ratio = config.train.scheduler.minimum_learning_rate / config.train.optimizer.learning_rate
     decay_steps   = max(total_steps - warmup_steps, 1)
     
-    # Give the ratio of the learning rate to the top value at each step
+    # 各ステップの、一番上の値に対する学習率の比を返す
     return LambdaLR(optimizer, lambda step: (step + 1) / warmup_steps if step < warmup_steps else minimum_ratio + (1 - minimum_ratio) * 0.5 * (1 + math.cos(math.pi * min((step - warmup_steps) / decay_steps, 1.0))))
 
 
 def build_wsd_scheduler(config: SimpleNamespace, optimizer: Optimizer, total_steps: int) -> LRScheduler:
     '''
-    #* Make a WSD (warmup, stable, decay) scheduler: raise the learning rate in a straight line for warmup_steps, keep it at the top, then lower it to the minimum in the last decay_fraction of the steps along 1 - sqrt(progress).
-    #? The same shape as get_wsd_lambda() in train_model.py of Supra-Mini-v6, which uses decay_fraction 0.2 and a minimum of 0.
-    #! The learning rate in the config is the top value. One step is one weight update (not one batch, with gradient accumulation).
+    #* WSD (warmup、stable、decay) のスケジューラーを作る: 学習率を warmup_steps の間は直線で上げ、一番上のまま保ち、最後の decay_fraction の割合のステップで 1 - sqrt(進み具合) に沿って最小値まで下げる。
+    #? Supra-Mini-v6 の train_model.py の get_wsd_lambda() と同じ形 (decay_fraction 0.2、最小値 0 を使う)。
+    #! config の学習率は一番上の値。1 ステップは重みの更新 1 回 (勾配を蓄積するときは、バッチ 1 つではない)。
     '''
     
-    # Read the settings, and find the step where the decay starts
+    # 設定を読み、下げ始めるステップを求める
     warmup_steps  = config.train.scheduler.warmup_steps
     minimum_ratio = config.train.scheduler.minimum_learning_rate / config.train.optimizer.learning_rate
     decay_start   = int(total_steps * (1 - config.train.scheduler.decay_fraction))
     decay_steps   = max(total_steps - decay_start, 1)
     
-    # Give the ratio of the learning rate to the top value at each step
+    # 各ステップの、一番上の値に対する学習率の比を返す
     return LambdaLR(optimizer, lambda step: (step + 1) / warmup_steps if step < warmup_steps else 1.0 if step < decay_start else minimum_ratio + (1 - minimum_ratio) * (1 - math.sqrt(min((step - decay_start) / decay_steps, 1.0))))
 
 
@@ -63,8 +63,8 @@ SCHEDULER_REGISTRY: dict[str, SchedulerBuilder] = {
 
 def build_scheduler(config: SimpleNamespace, optimizer: Optimizer, total_steps: int) -> LRScheduler:
     '''
-    #* Make the scheduler for config.train.scheduler.name.
-    #? Called from utils/trainer/pipeline.py, with the number of weight updates in the whole training.
+    #* config.train.scheduler.name のスケジューラーを作る。
+    #? utils/trainer/pipeline.py から、学習全体の重みの更新回数を渡して呼ぶ。
     '''
     
     name = config.train.scheduler.name

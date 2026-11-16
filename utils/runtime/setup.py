@@ -1,5 +1,5 @@
 # @file setup.py
-# @brief Run setup
+# @brief 実行の準備
 
 from datetime import datetime
 from pathlib  import Path
@@ -14,7 +14,7 @@ from utils.exceptions import Error
 
 def setup_seed(seed: int) -> None:
     '''
-    #* Set the seeds of Python, NumPy, and PyTorch.
+    #* Python、NumPy、PyTorch のシードを設定する。
     '''
     
     random.seed(seed)
@@ -25,8 +25,8 @@ def setup_seed(seed: int) -> None:
 
 def setup_device(device: str) -> torch.device:
     '''
-    #* Choose a CPU or CUDA device from run.device.
-    #! run.device is auto, cpu, or cuda. auto chooses CUDA when PyTorch can use it.
+    #* run.device から CPU か CUDA のデバイスを選ぶ。
+    #! run.device は auto、cpu、cuda のどれか。auto は PyTorch が CUDA を使えれば CUDA を選ぶ。
     '''
     
     if device == "auto":
@@ -42,8 +42,8 @@ def setup_device(device: str) -> torch.device:
 
 def setup_log_dir(log_dir: str | Path) -> Path:
     '''
-    #* Make a new folder named with the date and time inside log_dir, and return it.
-    #! When a folder with the same time exists, add a number such as _01.
+    #* log_dir の中に日付と時刻の名前の新しいフォルダを作り、それを返す。
+    #! 同じ時刻のフォルダがあれば、_01 のような番号を付ける。
     '''
     
     root  = Path(log_dir)

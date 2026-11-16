@@ -1,12 +1,12 @@
 # @file bundle.py
-# @brief Choose a DataBundle builder from the dataset name
+# @brief データセットの名前から DataBundle を作る関数を選ぶ
 
 ##########################################################
 '''
-Add a dataset
-1. Write build_xxx_bundle(config, seed) in utils/data/xxx.py to return a DataBundle.
-2. Add "name: build_xxx_bundle" to DATASET_REGISTRY.
-3. Set config.data.name to that name.
+データセットの追加
+1. utils/data/xxx.py に、DataBundle を返す build_xxx_bundle(config, seed) を書く。
+2. DATASET_REGISTRY に "名前: build_xxx_bundle" を足す。
+3. config.data.name をその名前にする。
 '''
 ##########################################################
 
@@ -29,8 +29,8 @@ DATASET_REGISTRY: dict[str, DatasetBuilder] = {
 
 def build_data_bundle(config: SimpleNamespace, seed: int) -> DataBundle:
     '''
-    #* Return the DataBundle for config.name.
-    #? Called from utils/trainer/pipeline.py with config.data.
+    #* config.name の DataBundle を返す。
+    #? utils/trainer/pipeline.py から config.data を渡して呼ぶ。
     '''
     
     if config.name not in DATASET_REGISTRY:

@@ -1,12 +1,12 @@
 # @file main.py
-# @brief Main entry point
+# @brief プログラムの入口
 
 ##########################################################
 '''
-Add a run mode
-1. Write a function that takes the config, such as chat_model(config) in utils/validator/chat.py.
-2. Add "name: function" to RUN_REGISTRY.
-3. Set run.mode to that name, or pass it with --mode.
+実行モードの追加
+1. config を受け取る関数を書く (例: utils/validator/chat.py の chat_model(config))。
+2. RUN_REGISTRY に "名前: 関数" を足す。
+3. run.mode をその名前にするか、--mode で渡す。
 '''
 ##########################################################
 
@@ -34,11 +34,11 @@ RUN_REGISTRY: dict[str, Callable[[SimpleNamespace], None]] = {
 
 def main() -> None:
     '''
-    #* Read the config, and run the mode in run.mode, or the mode given with --mode.
-    #! Pass a JSON config file, such as python main.py --config config/hotaru.json. Add --mode chat or --mode benchmark to use another mode without changing the config.
+    #* config を読み、run.mode のモード (--mode があればそのモード) を実行する。
+    #! JSON の設定ファイルを渡す (例: python main.py --config config/hybrid.json)。--mode chat や --mode benchmark を付けると、config を変えずに別のモードで動かせる。
     '''
     
-    # Parse the arguments
+    # 引数を読む
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path                 , required=True                                            )
     parser.add_argument("--mode"  , choices=list(RUN_REGISTRY), default=None , help="run mode to use instead of run.mode")
@@ -51,12 +51,12 @@ def main() -> None:
     except (OSError, JSONDecodeError) as error:
         raise Error("Failed to load the config file.", detail=f"{args.config}: {error}", hint="Check the path and the JSON format.", code=1)
     
-    # Choose the run mode
+    # 実行モードを選ぶ
     mode = args.mode if args.mode is not None else config.run.mode
     if mode not in RUN_REGISTRY:
         raise Error("Unknown run mode.", detail=f"run mode: {mode!r}\nAvailable: {', '.join(RUN_REGISTRY)}", hint="Set run.mode, or pass --mode with one of the available modes.", code=2)
     
-    # Run the mode, stop quietly on Ctrl+C, and always remove the caches
+    # モードを実行する。Ctrl+C では静かに止め、キャッシュは必ず消す
     try:
         RUN_REGISTRY[mode](config)
     except KeyboardInterrupt:

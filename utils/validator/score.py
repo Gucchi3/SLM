@@ -1,5 +1,5 @@
 # @file score.py
-# @brief Log probabilities of token lists, for the rules of the Tiny-ML Leaderboard and the Open SLM Leaderboard
+# @brief トークン列の対数確率 (Tiny-ML Leaderboard と Open SLM Leaderboard の決まり用)
 
 from rich.progress import track
 from torch         import nn
@@ -11,19 +11,19 @@ import torch
 
 def score_texts(model: nn.Module, ids_list: list[list[int]], device: torch.device, batch_size: int) -> list[float]:
     '''
-    #* Return, for each token list, the sum of log P(token | the tokens before it) from the second token to the last.
-    #? Used by benchmark.py for BLiMP, ARC-Easy, and WikiText-2 (the Tiny-ML Leaderboard).
-    #! The first token is not scored, because no token comes before it (no BOS token is added). A list of fewer than 2 tokens gets -inf.
-    #! The lists of a batch are padded on the right. The model must be causal, so that the padding does not change the scores of the tokens before it.
-    #! A progress bar is shown while the batches run, and removed at the end.
+    #* 各トークン列について、2 つ目から最後のトークンまでの log P(トークン | その前のトークン) の合計を返す。
+    #? benchmark.py が BLiMP、ARC-Easy、WikiText-2 (Tiny-ML Leaderboard) に使う。
+    #! 最初のトークンは前にトークンが無いので点を付けない (BOS トークンは足さない)。2 トークン未満の列は -inf になる。
+    #! バッチの列は右側を埋める。パディングが前のトークンの点を変えないよう、モデルは因果的であること。
+    #! バッチを動かしている間は進み具合のバーを表示し、終わると消す。
     '''
     
-    # Score the lists of 2 or more tokens, batch_size lists at a time
+    # 2 トークン以上の列に、batch_size 列ずつ点を付ける
     scores = [-math.inf] * len(ids_list)
     usable = [index for index, ids in enumerate(ids_list) if len(ids) >= 2]
     with torch.no_grad():
         for start in track(range(0, len(usable), batch_size), description="Scoring", transient=True):
-            # Make the inputs, the targets (the inputs moved by one token), and the mask of the tokens that are not padding
+            # 入力、正解 (入力を 1 トークンずらしたもの)、パディングでないトークンのマスクを作る
             batch   = usable[start:start + batch_size]
             width   = max(len(ids_list[index]) for index in batch) - 1
             inputs  = torch.zeros((len(batch), width), dtype=torch.int64)
@@ -35,7 +35,7 @@ def score_texts(model: nn.Module, ids_list: list[list[int]], device: torch.devic
                 targets[row, :len(ids) - 1] = ids[1:]
                 mask[row, :len(ids) - 1]    = True
             
-            # Add the log probabilities of the targets that are not padding
+            # パディングでない正解の対数確率を足す
             logits    = model(inputs.to(device), torch.ones_like(inputs).to(device)).float()
             log_probs = torch.log_softmax(logits, dim=-1).gather(-1, targets.to(device).unsqueeze(-1)).squeeze(-1)
             for index, total in zip(batch, (log_probs * mask.to(device)).sum(dim=-1).tolist()):
@@ -45,19 +45,19 @@ def score_texts(model: nn.Module, ids_list: list[list[int]], device: torch.devic
 
 def score_continuations(model: nn.Module, requests: list[tuple[list[int], int]], device: torch.device, batch_size: int) -> list[float]:
     '''
-    #* Return, for each pair of a token list and a count n, the sum of log P(token | the tokens before it) over the last n tokens of the list.
-    #? Used by benchmark.py for HellaSwag, ARC, PIQA, and ArithMark-3 (the Open SLM Leaderboard), where the last n tokens are the choice.
-    #! The model reads the list without its last token, so n must be 1 or more and less than the length of the list.
-    #! The longest lists run first, so that the lists of a batch have similar lengths (little padding), and a lack of memory shows at the first batch. The scores come back in the order of requests.
-    #! The lists of a batch are padded on the right, so the model must be causal. A progress bar is shown while the batches run, and removed at the end.
+    #* トークン列と数 n の組ごとに、列の最後の n トークンについての log P(トークン | その前のトークン) の合計を返す。
+    #? benchmark.py が HellaSwag、ARC、PIQA、ArithMark-3 (Open SLM Leaderboard) に使う。最後の n トークンが選択肢になる。
+    #! モデルは最後のトークンを除いた列を読むので、n は 1 以上で列の長さより小さくする。
+    #! 長い列から先に動かす。バッチの中の列の長さがそろい (パディングが少ない)、メモリ不足も最初のバッチで分かる。点は頼まれた順に戻す。
+    #! バッチの列は右側を埋めるので、モデルは因果的であること。バッチを動かしている間は進み具合のバーを表示し、終わると消す。
     '''
     
-    # Sort the requests from the longest list to the shortest (requests of the same length keep their order)
+    # 頼まれたものを、列の長い順に並べる (同じ長さなら元の順を保つ)
     scores = [0.0] * len(requests)
     order  = sorted(range(len(requests)), key=lambda index: len(requests[index][0]), reverse=True)
     with torch.no_grad():
         for start in track(range(0, len(order), batch_size), description="Scoring", transient=True):
-            # Make the inputs, the targets (the inputs moved by one token), and the mask of the last n targets of each list
+            # 入力、正解 (入力を 1 トークンずらしたもの)、各列の最後の n 個の正解のマスクを作る
             batch   = order[start:start + batch_size]
             width   = len(requests[batch[0]][0]) - 1
             inputs  = torch.zeros((len(batch), width), dtype=torch.int64)
@@ -70,7 +70,7 @@ def score_continuations(model: nn.Module, requests: list[tuple[list[int], int]],
                 targets[row, :end]         = ids[1:]
                 mask[row, end - count:end] = True
             
-            # Add the log probabilities of the masked targets
+            # マスクした正解の対数確率を足す
             logits    = model(inputs.to(device), torch.ones_like(inputs).to(device)).float()
             log_probs = torch.log_softmax(logits, dim=-1).gather(-1, targets.to(device).unsqueeze(-1)).squeeze(-1)
             for index, total in zip(batch, torch.where(mask.to(device), log_probs, 0.0).sum(dim=-1).tolist()):

@@ -1,5 +1,5 @@
 # @file train.py
-# @brief Train the model for a number of weight updates
+# @brief 決まった回数だけ重みを更新してモデルを学習する
 
 from torch.nn.utils   import clip_grad_norm_
 from torch.utils.data import DataLoader
@@ -15,8 +15,8 @@ from utils.trainer.optimization import loss_distill, loss_label
 from .types                     import Metrics, TrainState, TrainingComponents
 
 GRAPH_WARMUP_UPDATES = 3
-# The label loss and the distillation loss compiled for train.compile (torch.compile does nothing until the first call)
-#! Most of the time of a small model goes to the elementwise work over the vocabulary here (softmax, z-loss), which the compile fuses.
+# train.compile のときに compile した、正解との損失と蒸留の損失 (torch.compile は最初の呼び出しまで何もしない)
+#! 小さなモデルでは、時間の大半がここの語彙全体にわたる要素ごとの計算 (softmax、z-loss) にかかり、compile がそれをまとめる。
 LOSS_LABEL_COMPILED   = torch.compile(loss_label)
 LOSS_DISTILL_COMPILED = torch.compile(loss_distill)
 
@@ -24,23 +24,23 @@ LOSS_DISTILL_COMPILED = torch.compile(loss_distill)
 
 def _train_forward_backward(config: SimpleNamespace, model: nn.Module, teacher: nn.Module | None, components: TrainingComponents, inputs: dict[str, torch.Tensor], totals: dict[str, torch.Tensor], times: int | None) -> None:
     '''
-    #* Run the forward and backward pass of one micro-batch, and add its label loss and accuracy to the totals.
-    #? Called from train_steps(), both eagerly and inside the CUDA graph capture.
-    #! Do not read tensor values on the CPU here. A CUDA graph cannot hold that.
+    #* micro-batch 1 つの forward と backward を行い、正解との損失と正解率を合計に足す。
+    #? train_steps() から、そのままでも CUDA グラフのキャプチャの中でも呼ぶ。
+    #! ここでテンソルの値を CPU で読まないこと。CUDA グラフはそれを持てない。
     #! times はループの周回数 (hybrid の loop.times_train から選んだもの)。None なら model に渡さず、モデルの決まった回数で通す。
     '''
     
-    # Run the student, with BF16 AMP on CUDA (no cast cache, for the CUDA graph)
+    # 生徒を通す (CUDA では BF16 の AMP。CUDA グラフのためにキャストのキャッシュは使わない)
     device_type = inputs["input_ids"].device.type
     with torch.autocast(device_type=device_type, dtype=torch.bfloat16, enabled=device_type == "cuda", cache_enabled=False):
         logits = model(inputs["input_ids"], inputs["attention_mask"]) if times is None else model(inputs["input_ids"], inputs["attention_mask"], times=times)
     
-    # Compute the loss against the labels
+    # 正解との損失を計算する
     label_fn                   = LOSS_LABEL_COMPILED if config.train.compile and device_type == "cuda" else loss_label
     label_loss, correct, count = label_fn(logits, inputs["targets"], components.loss_fn, components.loss_kind)
     loss                       = label_loss
     
-    # Mix in the loss against the teacher's softened outputs
+    # 温度でやわらげた教師の出力との損失を混ぜる
     if teacher is not None:
         with torch.no_grad(), torch.autocast(device_type=device_type, dtype=torch.bfloat16, enabled=device_type == "cuda", cache_enabled=False):
             teacher_logits = teacher(inputs.get("teacher_input_ids", inputs["input_ids"]), inputs.get("teacher_attention_mask", inputs["attention_mask"]))
@@ -50,10 +50,10 @@ def _train_forward_backward(config: SimpleNamespace, model: nn.Module, teacher: 
         soft_loss   = distill_fn(logits, teacher_logits, inputs["targets"], components.loss_kind, temperature)
         loss        = (1 - alpha) * label_loss + alpha * temperature**2 * soft_loss
     
-    # Add the gradients, scaled so that one cycle of micro-batches gives their mean
+    # 勾配を足す。micro-batch 1 周分でその平均になるようにスケールする
     (loss / config.train.accumulation_steps).backward()
     
-    # Add the label loss (weighted by the number of targets) and the accuracy to the totals
+    # 正解との損失 (正解の数で重みを付ける) と正解率を合計に足す
     totals["loss"].add_(label_loss.detach().double() * count)
     totals["correct"].add_(correct)
     totals["counted"].add_(count)
@@ -62,9 +62,9 @@ def _train_forward_backward(config: SimpleNamespace, model: nn.Module, teacher: 
 
 def _train_update(config: SimpleNamespace, model: nn.Module, components: TrainingComponents) -> None:
     '''
-    #* Clip the gradients, update the weights, and set the gradients to zero.
-    #? Called from train_steps(), both eagerly and inside the CUDA graph capture.
-    #! Keep the gradient tensors (set_to_none=False). The CUDA graphs add to the same memory. Do not move the scheduler here, because a CUDA graph would replay the same learning rate.
+    #* 勾配をクリップして重みを更新し、勾配を 0 にする。
+    #? train_steps() から、そのままでも CUDA グラフのキャプチャの中でも呼ぶ。
+    #! 勾配のテンソルは残す (set_to_none=False)。CUDA グラフは同じメモリに足していくため。スケジューラーはここに移さないこと。CUDA グラフが同じ学習率を再生してしまう。
     '''
     
     clip_grad_norm_(model.parameters(), config.train.max_grad_norm)
@@ -75,18 +75,18 @@ def _train_update(config: SimpleNamespace, model: nn.Module, components: Trainin
 
 def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module, teacher: nn.Module | None, train_loader: DataLoader, train_sampler: EpochSampler, components: TrainingComponents, state: TrainState, updates: int) -> Metrics:
     '''
-    #* Train the model for the given number of weight updates, with gradient accumulation and clipping, going on to the next epoch when the train data ends. With a teacher, also learn the teacher's softened outputs (distillation).
-    #? Called from loop.py between validations. Shows the progress of the whole training and the running loss in one line, which goes away at the end.
-    #! The train data starts at micro-batch state.batch of epoch state.epoch (through train_sampler), and state.step, state.epoch, and state.batch move with the training.
-    #! Each batch is a dict of input_ids, attention_mask, and targets (-100 to skip). Add teacher_input_ids and teacher_attention_mask when the teacher uses another tokenizer.
-    #! The shapes of the logits and the targets follow the loss kind (see loss_label() in optimization/loss.py). The teacher must give the same shape as the student.
-    #! With train.compile on CUDA, model is the compiled model from pipeline.py, and the losses run compiled. The compile happens in the first eager updates, before the CUDA graph capture. Do not use mode="reduce-overhead", which makes CUDA graphs of its own.
-    #! With train.cuda_graph on CUDA, the first updates of each call run eagerly. After that, one micro-batch and one update each run as a CUDA graph. Batches of another shape run eagerly.
+    #* 決まった回数だけ重みを更新してモデルを学習する。勾配の蓄積とクリップを行い、train データが終われば次のエポックへ進む。教師があれば、温度でやわらげた教師の出力も学ぶ (蒸留)。
+    #? 検証の合間に loop.py から呼ぶ。学習全体の進み具合と途中の損失を 1 行で表示し、終わると消す。
+    #! train データはエポック state.epoch の micro-batch state.batch から始まり (train_sampler を通して)、state.step、state.epoch、state.batch は学習とともに進む。
+    #! 各バッチは input_ids、attention_mask、targets (飛ばすところは -100) の辞書。教師が別のトークナイザーを使うときは、teacher_input_ids と teacher_attention_mask を足す。
+    #! ロジットと正解の形は損失の種類に従う (optimization/loss.py の loss_label() を参照)。教師は生徒と同じ形を返すこと。
+    #! CUDA で train.compile のときは、model は pipeline.py で compile したモデルで、損失も compile して動く。compile は CUDA グラフのキャプチャの前、最初のそのままの更新の間に起きる。mode="reduce-overhead" は使わないこと。自分で CUDA グラフを作ってしまう。
+    #! CUDA で train.cuda_graph のときは、各呼び出しの最初の数回の更新はそのまま動く。その後は、micro-batch 1 つと更新 1 回をそれぞれ CUDA グラフで動かす。形の違うバッチはそのまま動く。
     #! モデルが loop_times_train (hybrid の loop.times_train) を持ち空でなければ、重みの更新ごとにその候補から周回数を選ぶ。乱数は run.seed と更新の番号だけで決まるので、再開しても複数の GPU でも同じ数になる。
     #! 候補が 2 種類以上のときは CUDA Graph を使えない (pipeline.py で止める)。1 種類なら、その回数のままグラフにする。
     '''
     
-    # Set training mode, and reset the totals on the device
+    # 学習モードにし、デバイス上の合計を 0 に戻す
     model.train()
     accumulation_steps = config.train.accumulation_steps
     use_graph          = config.train.cuda_graph and device.type == "cuda"
@@ -101,19 +101,19 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
     micro_batches      = 0
     done               = 0
     
-    # Run on a side stream for the CUDA graph, as PyTorch asks for the warmup and the capture
+    # CUDA グラフのために、横のストリームで動かす (PyTorch がウォームアップとキャプチャにそう求めるため)
     if side_stream is not None:
         side_stream.wait_stream(torch.cuda.current_stream())
     with torch.cuda.stream(side_stream), print_progress("train") as progress:
         task = progress.add_task("Train", total=config.train.steps, completed=state.step, loss="-")
         while done < updates:
-            # Start the train data at the place in the epoch where the training is
+            # 学習が進んだ位置から、エポックの train データを始める
             train_sampler.set_position(state.epoch, state.batch * config.data.batch_size)
             for batch in train_loader:
                 micro_batches += 1
                 state.batch   += 1
                 
-                # Copy the batch into the fixed buffers of the CUDA graph when the shape matches, or else move it to the device
+                # 形が合えばバッチを CUDA グラフの固定のバッファにコピーし、合わなければデバイスへ送る
                 if use_graph and not static:
                     static = {key: value.to(device) for key, value in batch.items()}
                 same_shape = use_graph and all(static[key].shape == value.shape for key, value in batch.items())
@@ -126,7 +126,7 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
                 if choices and (micro_batches - 1) % accumulation_steps == 0:
                     times = random.Random(config.run.seed * 1_000_003 + state.step).choice(choices)
                 
-                # Capture the CUDA graphs at the start of a cycle, after the warmup updates
+                # ウォームアップの更新の後、1 周の始めに CUDA グラフをキャプチャする
                 if same_shape and forward_graph is None and micro_batches > GRAPH_WARMUP_UPDATES * accumulation_steps and (micro_batches - 1) % accumulation_steps == 0:
                     forward_graph = torch.cuda.CUDAGraph()
                     update_graph  = torch.cuda.CUDAGraph()
@@ -135,14 +135,14 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
                     with torch.cuda.graph(update_graph, pool=forward_graph.pool(), capture_error_mode="thread_local"):
                         _train_update(config, model, components)
                 
-                # Run the micro-batch, by the CUDA graph or eagerly
+                # micro-batch を CUDA グラフかそのままで動かす
                 if forward_graph is not None and same_shape:
                     forward_graph.replay()
                 else:
                     _train_forward_backward(config, model, teacher, components, inputs, totals, times)
                 samples += inputs["input_ids"].shape[0]
                 
-                # Update the weights at the end of each cycle, then move the learning rate one step
+                # 1 周の終わりに重みを更新し、学習率を 1 ステップ進める
                 if micro_batches % accumulation_steps == 0 and update_graph is not None:
                     update_graph.replay()
                 elif micro_batches % accumulation_steps == 0:
@@ -152,19 +152,19 @@ def train_steps(config: SimpleNamespace, device: torch.device, model: nn.Module,
                     done       += 1
                     state.step += 1
                     
-                    # Show the running loss every log_interval updates (this waits for the GPU)
+                    # log_interval 回の更新ごとに途中の損失を表示する (GPU を待つ)
                     progress.update(task, advance=1)
                     if state.step % config.train.log_interval == 0:
                         progress.update(task, loss=f"{(totals['loss'] / totals['counted'].clamp(min=1)).item():.4f}")
                 if done == updates:
                     break
             else:
-                # Go on to the next epoch when the train data ends
+                # train データが終わったら次のエポックへ進む
                 state.epoch += 1
                 state.batch  = 0
     if side_stream is not None:
         torch.cuda.current_stream().wait_stream(side_stream)
     
-    # Read the totals once at the end
+    # 最後に 1 回だけ合計を読む
     counted = max(int(totals["counted"].item()), 1)
     return Metrics(totals["loss"].item() / counted, totals["correct"].item() / counted, samples)

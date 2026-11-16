@@ -1,5 +1,5 @@
 # @file epoch_sampler.py
-# @brief Sampler that gives the train data in a new random order in each epoch, and can start in the middle of an epoch
+# @brief 学習データをエポックごとに新しいランダムな順で渡し、エポックの途中からも始められるサンプラー
 
 from collections.abc  import Iterator
 from torch.utils.data import Sampler
@@ -10,14 +10,14 @@ import numpy as np
 
 class EpochSampler(Sampler[int]):
     '''
-    #* Give the indices 0 to length - 1 in a random order that depends only on the seed and the epoch, from a chosen place in that order.
-    #? Used for the train loader by build_pretrain_bundle() in pretrain.py. train_steps() in utils/trainer/train.py sets the place with set_position().
-    #! The order of an epoch is made again from the seed and the epoch number, so a run that restarts from train_state.pt gets the same batches as a run without a stop.
+    #* 0 から length - 1 の番号を、シードとエポックだけで決まるランダムな順に、その順の決めた位置から渡す。
+    #? pretrain.py の build_pretrain_bundle() が train のローダーに使う。utils/trainer/train.py の train_steps() が set_position() で位置を決める。
+    #! エポックの順はシードとエポックの番号から作り直す。だから train_state.pt から再開した学習でも、止めなかった学習と同じバッチになる。
     '''
     
     def __init__(self, length: int, seed: int) -> None:
         '''
-        #* Keep the number of indices and the seed, and start at the beginning of epoch 0.
+        #* 番号の数とシードを覚え、エポック 0 の最初から始める。
         '''
         
         super().__init__()
@@ -29,7 +29,7 @@ class EpochSampler(Sampler[int]):
     
     def set_position(self, epoch: int, start: int) -> None:
         '''
-        #* Make the next pass give the order of the epoch, from its start-th index.
+        #* 次の 1 周で、そのエポックの順を start 番目から渡すようにする。
         '''
         
         self.epoch = epoch
@@ -38,15 +38,15 @@ class EpochSampler(Sampler[int]):
     
     def __len__(self) -> int:
         '''
-        #* Return the number of indices that the next pass gives.
+        #* 次の 1 周で渡す番号の数を返す。
         '''
         
         return self.length - self.start
     
     def __iter__(self) -> Iterator[int]:
         '''
-        #* Give the indices of the epoch in its random order, from the start-th one.
-        #! The indices come from a NumPy array and not from a Python list, because a list of tens of millions of indices takes over 1 GB.
+        #* エポックの番号をランダムな順に、start 番目から渡す。
+        #! 番号は Python のリストではなく NumPy の配列から取り出す。数千万個の番号のリストは 1 GB を超えるため。
         '''
         
         order = np.random.default_rng([self.seed, self.epoch]).permutation(self.length)

@@ -1,5 +1,5 @@
 # @file chat.py
-# @brief Talk with a trained model in the terminal
+# @brief 学習したモデルとターミナルで会話する
 
 from rich.console import Console
 from rich.text    import Text
@@ -15,24 +15,24 @@ CHAT_STYLES = ("text", "chat")
 
 def chat_model(config: SimpleNamespace) -> None:
     '''
-    #* Load the model, its weights, and the tokenizer, and talk with the model in the terminal.
-    #? Chosen in main.py with run.mode (or --mode) chat. Uses load_model() in load.py and generate_tokens() in generate.py.
-    #! validator.chat.style text: the model goes on from what you type (for a model after pretraining only). chat: what you type goes in as <user> text <bot>, and the model answers until <eos> (for a model after SFT).
-    #! In the chat style, the earlier turns stay in the context, and the model sees the last data.max_length tokens. Type /reset to forget the turns, and /exit or an empty line to end.
+    #* モデル、その重み、トークナイザーを読み込み、ターミナルでモデルと会話する。
+    #? main.py で run.mode (または --mode) が chat のとき選ばれる。load.py の load_model() と generate.py の generate_tokens() を使う。
+    #! validator.chat.style が text: 入力した文の続きをモデルが書く (事前学習だけのモデル向け)。chat: 入力した文を <user> 文 <bot> として入れ、モデルは <eos> まで答える (SFT 後のモデル向け)。
+    #! chat の形では、前の発話を文脈に残し、モデルは最後の data.max_length トークンを見る。/reset で発話を忘れ、/exit か空行で終わる。
     '''
     
-    # Check the style
+    # 形を確かめる
     settings = config.validator.chat
     if settings.style not in CHAT_STYLES:
         raise Error("Unknown chat style.", detail=f"validator.chat.style: {settings.style!r}\nAvailable: {', '.join(CHAT_STYLES)}", hint="Use text for a model after pretraining, and chat for a model after SFT.", code=32)
     
-    # Load the model and the tokenizer, and check that the tokenizer has the tokens of the turns for the chat style
+    # モデルとトークナイザーを読み込み、chat の形ではトークナイザーに発話のトークンがあることを確かめる
     model, tokenizer, device = load_model(config)
     vocab                    = tokenizer.get_vocab()
     if settings.style == "chat" and not {"<user>", "<bot>", "<eos>"} <= vocab.keys():
         raise Error("The tokenizer has no tokens for the turns.", detail=f"{config.data.tokenizer_dir} has no <user>, <bot>, or <eos>.", hint="Use validator.chat.style text, or a tokenizer made by tool/data.", code=34)
     
-    # Talk until /exit or an empty line
+    # /exit か空行まで会話する
     console = Console()
     history = list[int]()
     console.print(Text(f"[Chat] Style: {settings.style}. Type /reset to forget the talk, and /exit or an empty line to end.", style="cyan"))
@@ -47,7 +47,7 @@ def chat_model(config: SimpleNamespace) -> None:
             history.clear()
             continue
         
-        # Make the answer. In the chat style, the turn goes after the earlier turns, and the answer and <eos> are kept for the next turn
+        # 答えを作る。chat の形では、発話を前の発話の後ろに置き、答えと <eos> を次の発話のために残す
         if settings.style == "chat":
             prompt = history + [vocab["<user>"]] + tokenizer.encode(text).ids + [vocab["<bot>"]]
         else:

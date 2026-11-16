@@ -1,5 +1,5 @@
 # @file pipeline.py
-# @brief Training pipeline
+# @brief 学習の流れ
 
 from pathlib      import Path
 from rich.console import Console
@@ -25,15 +25,15 @@ TRAIN_METHODS = ("normal", "distill")
 
 def pipeline_train(config: SimpleNamespace) -> None:
     '''
-    #* Prepare the data, the models, and the training parts, then train and test.
-    #? Called from main.py. Calls loop_train() in loop.py, which calls train.py and evaluate.py.
-    #! Set train.method to normal or distill. distill also needs model.teacher_name, model.teacher_checkpoint, and train.distillation.
-    #! With train.resume set to a train_state.pt, the training goes on from that state in the same log folder. The model and the optimizer must be the same as in the saved run.
-    #! After the training, the test uses best.pth, the weights with the lowest validation perplexity.
-    #! Without test data (a test of 0 in --split of tool/data), the benchmarks in validator.benchmark run on best.pth instead of the test, and benchmark.json goes to the log folder.
+    #* データ、モデル、学習の部品を準備し、学習してからテストする。
+    #? main.py から呼ぶ。loop.py の loop_train() を呼び、そこから train.py と evaluate.py を呼ぶ。
+    #! train.method は normal か distill にする。distill では model.teacher_name、model.teacher_checkpoint、train.distillation も要る (教師の形は model.teacher_spec、null なら model.spec と同じ)。
+    #! train.resume に train_state.pt を指定すると、同じログのフォルダで、その状態から学習を続ける。モデルと最適化器は保存した学習と同じにする。
+    #! 学習の後のテストには best.pth (検証の perplexity が一番低い重み) を使う。
+    #! test データが無いとき (tool/data の --split で test が 0) は、テストの代わりに validator.benchmark のベンチマークを best.pth で実行し、benchmark.json をログのフォルダに置く。
     '''
     
-    # Check the training method and the length of the training
+    # 学習の方法と学習の長さを確かめる
     if config.train.method not in TRAIN_METHODS:
         raise Error("Unknown training method.", detail=f"train.method: {config.train.method!r}\nAvailable: {', '.join(TRAIN_METHODS)}", hint="Set train.method to 'normal' or 'distill'.", code=9)
     if config.train.steps < 1 or config.train.eval_interval < 1:
@@ -45,18 +45,18 @@ def pipeline_train(config: SimpleNamespace) -> None:
     if len(choices) >= 2 and config.train.cuda_graph:
         raise Error("CUDA Graph cannot change the number of loops.", detail=f"model.spec.loop.times_train: {choices}, train.cuda_graph: true", hint="Set train.cuda_graph to false, or use one number in model.spec.loop.times_train.", code=43)
     
-    # Set the seed and the device
+    # シードとデバイスを設定する
     setup_seed(config.run.seed)
     device = setup_device(config.run.device)
     
-    # Prepare the data, and check that the train data fills one batch. Without test data, check the benchmark names now, because the benchmarks run after the training
+    # データを準備し、train データでバッチが 1 つ埋まることを確かめる。test データが無いときは、学習の後にベンチマークを実行するので、ここでベンチマークの名前を確かめる
     bundle = build_data_bundle(config.data, config.run.seed)
     if len(bundle.train_loader) == 0:
         raise Error("The train data is smaller than one batch.", detail=f"data.batch_size: {config.data.batch_size}", hint="Use a smaller data.batch_size, or more train data.", code=31)
     if len(bundle.test_loader) == 0:
         benchmark_check(config)
     
-    # Prepare the student, and the frozen teacher for distillation
+    # 生徒と、蒸留用の固定した教師を準備する
     model   = build_model(config.model.name, config.model.checkpoint, getattr(config.model, "spec", None)).to(device=device, dtype=torch.float32)
     teacher = None
     if config.train.method == "distill":
@@ -65,16 +65,16 @@ def pipeline_train(config: SimpleNamespace) -> None:
         teacher.eval()
         teacher.requires_grad_(False)
     
-    # Compile the student for training only (it shares the weights, so saving, loading, and the optimizer use model as before)
+    # 生徒を学習のためだけに compile する (重みは共有するので、保存、読み込み、最適化器はこれまでどおり model を使う)
     train_model = torch.compile(model) if config.train.compile and device.type == "cuda" else model
     
-    # Build the loss, optimizer, and scheduler (the scheduler moves one step at each weight update)
+    # 損失、最適化器、スケジューラーを作る (スケジューラーは重みを更新するたびに 1 ステップ進む)
     loss_fn, loss_kind = build_loss_fn(config)
     optimizer          = build_optimizer(config, model)
     scheduler          = build_scheduler(config, optimizer, config.train.steps)
     components         = TrainingComponents(loss_fn, loss_kind, optimizer, scheduler)
     
-    # Read the training state for train.resume, or start from the first step in a new log folder
+    # train.resume の学習の状態を読むか、新しいログのフォルダで最初のステップから始める
     state   = TrainState(step=0, epoch=0, batch=0, best_ppl=float("inf"), history=[])
     log_dir = setup_log_dir(config.run.log_dir) if config.train.resume is None else Path(config.train.resume).parent
     if config.train.resume is not None:
@@ -87,19 +87,19 @@ def pipeline_train(config: SimpleNamespace) -> None:
             raise Error("Could not load the training state.", detail=f"{config.train.resume}: {error}", hint="Set train.resume to a train_state.pt of a run with the same model and optimizer, or to null.", code=29)
         state = TrainState(**saved["state"])
     
-    # Save and show the settings
+    # 設定を保存して表示する
     save_metadata(bundle.metadata, config, log_dir)
     print_metadata(config)
     remove_pycache()
     
-    # Train, then load the best weights (the lowest validation perplexity)
+    # 学習し、最良の重み (検証の perplexity が一番低いもの) を読み込む
     loop_train(config, device, log_dir, bundle, model, train_model, teacher, components, state)
     best_path = log_dir / "best.pth"
     if not best_path.exists():
         raise Error("There are no best weights.", detail=f"Missing: {best_path}", hint="The validation perplexity was never a finite number. Check the learning rate and the data, then train again.", code=37)
     model.load_state_dict(torch.load(best_path, map_location=device, weights_only=True))
     
-    # Test the best weights in float32, or run the benchmarks on them when there is no test data
+    # 最良の重みを float32 でテストする。test データが無いときはベンチマークを実行する
     if len(bundle.test_loader) > 0:
         test_metrics = evaluate_epoch(config, device, model, bundle.test_loader, components, "Test", low_precision=False)
         Console().print(Panel(f"[bold green]Test loss: {test_metrics.loss:.4f} | Test perplexity: {test_metrics.perplexity:.2f} | Test accuracy: {test_metrics.accuracy:.2%}[/bold green]", border_style="green", expand=False))
