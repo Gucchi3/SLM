@@ -1,5 +1,5 @@
 # @file sft.py
-# @brief Build the DataBundle for SFT on daily talk (empty for now)
+# @brief 日常会話の SFT 用の DataBundle を作る (今は空)
 
 from types import SimpleNamespace
 
@@ -9,9 +9,9 @@ from .types import DataBundle
 
 def build_sft_bundle(config: SimpleNamespace, seed: int) -> DataBundle:
     '''
-    #* Return the train, validation, and test loaders for SFT (next-token prediction on the bot replies of the talks).
-    #? Chosen in bundle.py when data.name is "sft". Uses Bin2dataset in bin2dataset.py.
-    #! Not written yet. Only the bot replies are targets; the user turns and the padding are -100.
+    #* SFT (会話のボットの返事で次のトークンを当てる) 用の train、validation、test のローダーを返す。
+    #? data.name が "sft" のとき bundle.py で選ばれる。bin2dataset.py の Bin2dataset を使う。
+    #! まだ書いていない。正解にするのはボットの返事だけで、ユーザーの発話とパディングは -100 にする。
     '''
     
     raise NotImplementedError("build_sft_bundle() is not written yet (utils/data/sft.py).")

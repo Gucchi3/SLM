@@ -1,5 +1,5 @@
 # @file cross_entropy_z_loss.py
-# @brief Cross entropy with z-loss, which keeps the logits from growing large
+# @brief z-loss 付きの交差エントロピー (ロジットが大きくなりすぎないようにする)
 
 from torch    import nn
 from torch.nn import functional as F
@@ -11,15 +11,15 @@ import torch
 
 class CrossEntropyZLoss(nn.Module):
     '''
-    #* Hold cross entropy plus z_weight * logsumexp(logits)², the z-loss of PaLM, which keeps the logits from drifting to large values.
-    #? Registered as "cross_entropy_z_loss" in LOSS_REGISTRY in loss.py. train_model.py of Supra-Mini-v6 uses z_weight 1e-4.
-    #! The loss of each target includes the z-loss, so the train and validation loss (and the perplexity from it) are a little larger than the cross entropy alone.
+    #* 交差エントロピー + z_weight * logsumexp(logits)² を持つ。後ろの項は PaLM の z-loss で、ロジットが大きな値へずれていくのを防ぐ。
+    #? loss.py の LOSS_REGISTRY に "cross_entropy_z_loss" として登録する。Supra-Mini-v6 の train_model.py は z_weight 1e-4 を使う。
+    #! 各正解の損失に z-loss が入るので、train と validation の損失 (とそこから求める perplexity) は、交差エントロピーだけのときより少し大きい。
     '''
     
     def __init__(self, z_weight: float, reduction: Literal["none"]) -> None:
         '''
-        #* Keep the weight of the z-loss and the reduction.
-        #! reduction must be "none" (one loss for each target), which build_loss_fn() in loss.py always gives.
+        #* z-loss の重みと reduction を覚える。
+        #! reduction は "none" (正解ごとに 1 つの損失) にする。loss.py の build_loss_fn() は必ずそう渡す。
         '''
         
         super().__init__()
@@ -29,8 +29,8 @@ class CrossEntropyZLoss(nn.Module):
     
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         '''
-        #* Return the loss of each target: the cross entropy plus z_weight times the square of logsumexp of its logits.
-        #! logits has the shape (targets, classes), and targets has the shape (targets,). A target of -100 gets only the z-loss, and loss_label() in loss.py masks it out.
+        #* 正解ごとの損失を返す: 交差エントロピー + z_weight x (そのロジットの logsumexp の 2 乗)。
+        #! logits の形は (targets, classes)、targets の形は (targets,)。-100 の正解は z-loss だけになり、loss.py の loss_label() がマスクで除く。
         '''
         
         return F.cross_entropy(logits, targets, reduction=self.reduction) + self.z_weight * logits.logsumexp(dim=-1) ** 2

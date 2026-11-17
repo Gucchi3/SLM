@@ -25,7 +25,7 @@ python -m tool.data all --tinystories --fineweb_edu --finemath --tokenizer_dir .
 ### 学習
 
 ```powershell
-python main.py --config .\config\hotaru.json
+python main.py --config .\config\hybrid.json
 ```
 
 ## 使用可能なデータセット
@@ -38,12 +38,14 @@ python main.py --config .\config\hotaru.json
 
 ## 実装されているモデル
 >[!NOTE]
->`./model/`を参照
-- **[Glint-2](https://huggingface.co/Glint-Research/Glint-2)**
-- **[Supra Mini v6](https://huggingface.co/SupraLabs/Supra-Mini-v6-1M)**
-- **Yokoyama**
-- **Hotaru**
+>`./model/hybrid/` と `./config/hybrid.json` を参照
 
+- **hybrid**: ブロック列 `c`（ゲート付き短畳み込み）、`g`（Gated DeltaNet）、`a`（全体注意）、`w`（窓注意）を自由に並べるモデル。
+  - 形はすべて `config.model.spec` に書きます（省略不可。知らないキー、型の違い、選べない値はエラー）。各項目の意味と選べる値は `config/hybrid.json` のコメントにあります。
+  - 注意: GQA、qk-norm、出力ゲート（頭ごと / 値ごと）、RoPE（部分 RoPE 可）/ 学習する位置の表 / なし、softmax / SimA、MLA、ループ内の KV 共有
+  - 埋め込み: 出力層との共有（tie）、2 段埋め込み
+  - FFN: GELU / ReLU² / SwiGLU、正規化: LayerNorm / RMSNorm / rmsp2 / DyT、サンドイッチ正規化
+  - ループ: 固定回数、周回ごとのループ埋め込みと LoRA、学習での周回数のランダム選択（`loop.times_train`）
 
 ## 測定可能なベンチマーク
 >[!NOTE]

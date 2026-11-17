@@ -1,4 +1,4 @@
-# Keep everything private, and publish only the files listed below
+# 基本はすべて公開せず、下に書いたファイルだけを公開する
 /*
 !/.gitignore
 !/README.md
@@ -11,23 +11,24 @@
 !/website/
 !/.github/
 !/config/
+!/tests/
 
 
-# docs: only the images (the specs, the coding rules, and the reading list stay on this machine)
+# docs: 画像だけ (仕様、コーディングルール、読むものの一覧は手元に置く)
 /docs/*
 !/docs/img/
 
-# model: the code and the tokenizers in model/weight/<model name>/, but not the weights
+# model: コードと model/weight/<モデル名>/ のトークナイザー。重みは除く
 /model/weight/**/*.pth
 /model/weight/**/*.pt
 /model/weight/**/*.safetensors
 /model/weight/**/.cache/
 
-# website: not the packages, the build, and the cache of Docusaurus
+# website: Docusaurus のパッケージ、ビルド、キャッシュは除く
 /website/node_modules/
 /website/build/
 /website/.docusaurus/
 
-# Python caches anywhere
+# どこにあっても Python のキャッシュは除く
 __pycache__/
 *.py[cod]

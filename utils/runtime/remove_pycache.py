@@ -1,5 +1,5 @@
 # @file remove_pycache.py
-# @brief Remove Python caches
+# @brief Python のキャッシュを消す
 
 from pathlib import Path
 
@@ -9,11 +9,11 @@ import shutil
 
 def remove_pycache() -> None:
     '''
-    #* Remove all __pycache__ folders under the current folder.
-    #? Called from utils/trainer/pipeline.py and the scripts in tool/.
+    #* 今のフォルダの下の __pycache__ フォルダをすべて消す。
+    #? utils/trainer/pipeline.py と tool/ のスクリプトから呼ぶ。
     '''
     
-    # Remove the deepest folders first
+    # 深いフォルダから先に消す
     cache_dirs = sorted(Path.cwd().rglob("__pycache__"), key=lambda path: len(path.parts), reverse=True)
     for cache_dir in cache_dirs:
         if cache_dir.is_dir() and not cache_dir.is_symlink():

@@ -14,7 +14,7 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest", "hypothesis"]
 
-# Settings for the checks in docs/coding_rules.md (ruff check and pyright only, no formatter)
+# docs/coding_rules.md のチェックの設定 (ruff check と pyright だけを使い、整形ツールは使わない)
 
 [tool.ruff]
 line-length = 250

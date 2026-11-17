@@ -1,5 +1,5 @@
 # @file types.py
-# @brief Data types
+# @brief データの型
 
 from dataclasses      import dataclass
 from math             import prod
@@ -31,7 +31,7 @@ DataBundle
 @dataclass(frozen=True)
 class PreprocessingMetadata:
     '''
-    #* Hold the details of the data preprocessing, such as the tokenizer.
+    #* トークナイザーなど、データの前処理の詳細を持つ。
     '''
     
     name        : str
@@ -42,8 +42,8 @@ class PreprocessingMetadata:
 @dataclass(frozen=True)
 class DatasetMetadata:
     '''
-    #* Hold the details of the dataset and its split.
-    #? Saved to metadata.json by save_metadata() in utils/runtime/save.py.
+    #* データセットとその分割の詳細を持つ。
+    #? utils/runtime/save.py の save_metadata() が metadata.json に保存する。
     '''
     
     name           : str
@@ -59,8 +59,8 @@ class DatasetMetadata:
     @property
     def input_size(self) -> int | None:
         '''
-        #* Return the number of elements in one input of fixed shape.
-        #! Return None for inputs of different lengths.
+        #* 形が決まった入力 1 つの要素数を返す。
+        #! 長さがばらばらの入力では None を返す。
         '''
         
         return prod(self.input_shape) if self.input_shape is not None else None
@@ -69,8 +69,8 @@ class DatasetMetadata:
 @dataclass(frozen=True)
 class DataBundle:
     '''
-    #* Group the train, validation, and test loaders with the sampler of the train loader and the metadata.
-    #! The trainer moves train_sampler to the place where the training is, such as the place of a resumed run.
+    #* train、validation、test のローダーを、train のローダーのサンプラーとメタデータと一緒にまとめる。
+    #! 学習のコードは train_sampler を学習の位置 (再開した学習の位置など) に動かす。
     '''
     
     train_loader     : DataLoader[Any]

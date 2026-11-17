@@ -1,12 +1,12 @@
 # @file optimizer.py
-# @brief Build an optimizer
+# @brief 最適化器を作る
 
 ##########################################################
 '''
-Add an optimizer
-1. Write build_xxx_optimizer(config, model) to return an Optimizer.
-2. Add "name: build_xxx_optimizer" to OPTIMIZER_REGISTRY.
-3. Set config.train.optimizer.name to that name.
+最適化器の追加
+1. Optimizer を返す build_xxx_optimizer(config, model) を書く。
+2. OPTIMIZER_REGISTRY に "名前: build_xxx_optimizer" を足す。
+3. config.train.optimizer.name をその名前にする。
 '''
 ##########################################################
 
@@ -27,19 +27,19 @@ OptimizerBuilder = Callable[[SimpleNamespace, nn.Module], Optimizer]
 
 def build_adamw_optimizer(config: SimpleNamespace, model: nn.Module) -> Optimizer:
     '''
-    #* Make AdamW with weight decay only on the weight matrices (not on biases, norm weights, or embeddings), and with embedding_lr_scale times the learning rate on the embeddings.
-    #! With the CUDA graph, the learning rate of each group is a tensor on the device, so the scheduler can change it between graph replays.
-    #! betas are the decay rates of the two moving averages in AdamW, such as [0.9, 0.999] (the PyTorch default). An embedding_lr_scale of 1.0 gives the embeddings the same learning rate as the rest.
+    #* AdamW を作る。weight decay は重み行列だけに掛け (バイアス、正規化の重み、埋め込みには掛けない)、埋め込みの学習率は embedding_lr_scale 倍にする。
+    #! CUDA グラフを使うときは、各グループの学習率をデバイス上のテンソルにする。グラフを再生する合間に、スケジューラーが変えられるようにするため。
+    #! betas は AdamW の 2 つの移動平均の減衰率 (例: [0.9, 0.999]、PyTorch の既定値)。embedding_lr_scale が 1.0 なら、埋め込みもほかと同じ学習率になる。
     '''
     
-    # Split the parameters into the weight matrices (with weight decay), the embeddings, and the rest (biases and norm weights)
+    # パラメータを、重み行列 (weight decay あり)、埋め込み、そのほか (バイアスと正規化の重み) に分ける
     embedding_ids = {id(parameter) for module in model.modules() if isinstance(module, nn.Embedding) for parameter in module.parameters()}
     parameters    = [parameter for parameter in model.parameters() if parameter.requires_grad]
     decay         = [parameter for parameter in parameters if parameter.ndim >= 2 and id(parameter) not in embedding_ids]
     embeddings    = [parameter for parameter in parameters if id(parameter) in embedding_ids]
     no_decay      = [parameter for parameter in parameters if parameter.ndim < 2 and id(parameter) not in embedding_ids]
     
-    # Make AdamW, fused on CUDA, and capturable for the CUDA graph
+    # AdamW を作る (CUDA では fused、CUDA グラフのために capturable)
     settings      = config.train.optimizer
     device        = parameters[0].device
     capturable    = config.train.cuda_graph and device.type == "cuda"
@@ -53,9 +53,9 @@ def build_adamw_optimizer(config: SimpleNamespace, model: nn.Module) -> Optimize
 
 def build_muon_optimizer(config: SimpleNamespace, model: nn.Module) -> Optimizer:
     '''
-    #* Make the stable Muon: Newton-Schulz orthogonalization, Nesterov momentum of muon_momentum, and decoupled weight decay on the weight matrices, with AdamW for the embeddings and the rest.
-    #? The same update as SingleDeviceMuonWithAuxAdam in Keller Jordan's Muon, which most Muon models on the Tiny-ML Leaderboard use. The groups come from _optimizer_muon_groups().
-    #! learning_rate, betas, and embedding_lr_scale are for the AdamW groups. muon_learning_rate (such as 0.02) and weight_decay (such as 0.01) are for the weight matrices.
+    #* 安定版の Muon を作る: Newton-Schulz の直交化、muon_momentum の Nesterov モーメンタム、重み行列への切り離した weight decay。埋め込みとそのほかには AdamW を使う。
+    #? Keller Jordan の Muon の SingleDeviceMuonWithAuxAdam と同じ更新。Tiny-ML Leaderboard の Muon のモデルの多くがこれを使う。グループは _optimizer_muon_groups() で作る。
+    #! learning_rate、betas、embedding_lr_scale は AdamW のグループ用。muon_learning_rate (例: 0.02) と weight_decay (例: 0.01) は重み行列用。
     '''
     
     muon = {"orthogonalization": "newton_schulz", "momentum_start": config.train.optimizer.muon_momentum, "momentum_warmup_steps": 0, "normuon": False, "beta2": 0.0, "cautious": False}
@@ -64,9 +64,9 @@ def build_muon_optimizer(config: SimpleNamespace, model: nn.Module) -> Optimizer
 
 def build_normuon_optimizer(config: SimpleNamespace, model: nn.Module) -> Optimizer:
     '''
-    #* Make the latest Muon: Polar Express orthogonalization, NorMuon, cautious weight decay, and momentum that warms up from muon_momentum_start to muon_momentum, with AdamW for the embeddings and the rest.
-    #? The Muon of modded-nanogpt (the NanoGPT speedrun) from late 2025 to 2026, without its parts for many GPUs. Polar Express: arXiv 2505.16932. NorMuon: arXiv 2510.05491. Cautious weight decay: arXiv 2510.12402.
-    #! The keys of build_muon_optimizer() are used in the same way. normuon_beta2 is the decay rate of the moving mean square of each row. muon_momentum_warmup_steps of 0 keeps the momentum at muon_momentum.
+    #* 最新の Muon を作る: Polar Express の直交化、NorMuon、cautious weight decay、muon_momentum_start から muon_momentum へ上がっていくモーメンタム。埋め込みとそのほかには AdamW を使う。
+    #? modded-nanogpt (NanoGPT speedrun) の 2025 年終わりから 2026 年の Muon から、多くの GPU 用の部分を除いたもの。Polar Express: arXiv 2505.16932。NorMuon: arXiv 2510.05491。Cautious weight decay: arXiv 2510.12402。
+    #! build_muon_optimizer() のキーは同じように使う。normuon_beta2 は各行の 2 乗の移動平均の減衰率。muon_momentum_warmup_steps が 0 なら、モーメンタムは muon_momentum のまま。
     '''
     
     settings = config.train.optimizer
@@ -76,28 +76,28 @@ def build_normuon_optimizer(config: SimpleNamespace, model: nn.Module) -> Optimi
 
 def _optimizer_muon_groups(config: SimpleNamespace, model: nn.Module, muon: dict[str, Any]) -> list[dict[str, Any]]:
     '''
-    #* Return the groups of MuonAdamW: Muon for the weight matrices, AdamW for the embeddings (embedding_lr_scale times learning_rate), and AdamW for the rest (biases, norm weights, and LoRA matrices).
-    #? Used by build_muon_optimizer() and build_normuon_optimizer(). muon holds the settings that differ between the two.
-    #! The weight matrices are the parameters of 2 or more dimensions outside the embeddings, so an output layer that is not tied to the embedding gets Muon too. The AdamW groups get no weight decay.
-    #! A matrix with "lora" in its name gets AdamW. Muon multiplies the update of a thin matrix (288 x 4) by sqrt(rows / columns). In Glint-2 this made large LoRA weights, and then x and the LoRA output grew each other until the loss became NaN.
-    #! With the CUDA graph, each learning rate is a tensor on the device, so the scheduler can change it between graph replays.
+    #* MuonAdamW のグループを返す: 重み行列には Muon、埋め込みには AdamW (学習率は learning_rate の embedding_lr_scale 倍)、そのほか (バイアス、正規化の重み、LoRA の行列) には AdamW。
+    #? build_muon_optimizer() と build_normuon_optimizer() が使う。muon には 2 つで違う設定が入る。
+    #! 重み行列は、埋め込み以外の 2 次元以上のパラメータ。だから埋め込みと共有しない出力層も Muon になる。AdamW のグループには weight decay を掛けない。
+    #! 名前に "lora" を含む行列は AdamW にする。Muon は細い行列 (288 x 4) の更新に sqrt(行 / 列) を掛ける。Glint-2 ではこれで LoRA の重みが大きくなり、x と LoRA の出力がお互いを大きくし合って、損失が NaN になった。
+    #! CUDA グラフを使うときは、各学習率をデバイス上のテンソルにする。グラフを再生する合間に、スケジューラーが変えられるようにするため。
     '''
-
-    # Split the parameters into the weight matrices, the embeddings, and the rest
+    
+    # パラメータを、重み行列、埋め込み、そのほかに分ける
     embedding_ids = {id(parameter) for module in model.modules() if isinstance(module, nn.Embedding) for parameter in module.parameters()}
     named         = [(name, parameter) for name, parameter in model.named_parameters() if parameter.requires_grad]
     parameters    = [parameter for _, parameter in named]
     matrices      = [parameter for name, parameter in named if parameter.ndim >= 2 and id(parameter) not in embedding_ids and "lora" not in name]
     embeddings    = [parameter for parameter in parameters if id(parameter) in embedding_ids]
     others        = [parameter for name, parameter in named if id(parameter) not in embedding_ids and (parameter.ndim < 2 or "lora" in name)]
-
-    # Make the learning rate of each group, as a tensor on the device for the CUDA graph
+    
+    # 各グループの学習率を作る (CUDA グラフのためにデバイス上のテンソルにする)
     settings   = config.train.optimizer
     device     = parameters[0].device
     capturable = config.train.cuda_graph and device.type == "cuda"
     rates      = [torch.tensor(rate, device=device) if capturable else rate for rate in (settings.muon_learning_rate, settings.learning_rate * settings.embedding_lr_scale, settings.learning_rate)]
     
-    # Make the groups (the weight matrices first, as in build_adamw_optimizer(), so the history records the Muon learning rate)
+    # グループを作る (build_adamw_optimizer() と同じく重み行列を先にし、履歴に Muon の学習率が残るようにする)
     adamw = {"kind": "adamw", "betas": (settings.betas[0], settings.betas[1]), "eps": 1e-8, "weight_decay": 0.0}
     return [{"params": matrices, "kind": "muon", "lr": rates[0], "weight_decay": settings.weight_decay, "momentum": settings.muon_momentum, **muon}, {"params": embeddings, "lr": rates[1], **adamw}, {"params": others, "lr": rates[2], **adamw}]
 
@@ -111,8 +111,8 @@ OPTIMIZER_REGISTRY: dict[str, OptimizerBuilder] = {
 
 def build_optimizer(config: SimpleNamespace, model: nn.Module) -> Optimizer:
     '''
-    #* Make the optimizer for config.train.optimizer.name.
-    #? Called from utils/trainer/pipeline.py.
+    #* config.train.optimizer.name の最適化器を作る。
+    #? utils/trainer/pipeline.py から呼ぶ。
     '''
     
     name = config.train.optimizer.name

@@ -1,12 +1,12 @@
 # @file sources.py
-# @brief Download and read the text and parquet datasets used by the shared corpus pipeline
+# @brief 共通のコーパス処理で使うテキストと parquet のデータセットを、ダウンロードして読む
 
 ##########################################################
 '''
-Add a source
-1. Add "name: HFTextSource(repo, folder, text_column)" to SOURCE_REGISTRY.
-   folder must hold parquet files with a text column.
-2. The option --name selects the dataset, and the token files go to data/name.
+ソースの追加
+1. SOURCE_REGISTRY に "名前: HFTextSource(repo, folder, text_column)" を足す。
+   folder には、テキストの列を持つ parquet ファイルを置く。
+2. オプション --名前 でそのデータセットを選び、トークンファイルは data/名前 に入る。
 '''
 ##########################################################
 
@@ -29,9 +29,9 @@ from .corpus          import CHARS_PER_GB, CorpusItem
 @dataclass(frozen=True)
 class HFTextSource:
     '''
-    #* Locate parquet files and their text column on the Hugging Face Hub.
+    #* Hugging Face Hub 上の parquet ファイルと、そのテキストの列の場所を持つ。
     '''
-
+    
     repo       : str
     folder     : str
     text_column: str
@@ -52,21 +52,21 @@ READ_CHUNK      = 1 << 20
 
 def download_hf_text(raw_dir: Path, source: HFTextSource, gb: float | None) -> None:
     '''
-    #* Download parquet files of source into raw_dir until they hold gb GB of text, and save the list of the files and the amount to raw_dir/files.json.
-    #? Called from the shared corpus pipeline. read_hf_text() reads files.json.
-    #! The files are taken in an order mixed with FILE_ORDER_SEED, so the same amount gives the same files, and a larger amount keeps the files of a smaller one.
-    #! A file that is already in raw_dir is not downloaded again.
-    #! With gb=None, all parquet files in the configured source folder are downloaded and all their text is used.
+    #* source の parquet ファイルを、テキストが gb GB に達するまで raw_dir にダウンロードし、ファイルの一覧と量を raw_dir/files.json に保存する。
+    #? 共通のコーパス処理から呼ぶ。files.json は read_hf_text() が読む。
+    #! ファイルは FILE_ORDER_SEED で混ぜた順に取る。だから同じ量なら同じファイルになり、量を増やしても少ない量のときのファイルは残る。
+    #! raw_dir にすでにあるファイルはダウンロードし直さない。
+    #! gb=None なら、設定したソースのフォルダの parquet ファイルをすべてダウンロードし、テキストを全部使う。
     '''
     
-    # List the parquet files of the folder, and mix their order with the fixed seed
+    # フォルダの parquet ファイルを一覧にし、固定のシードで順番を混ぜる
     try:
         paths = sorted(entry.path for entry in HfApi().list_repo_tree(source.repo, source.folder, recursive=True, repo_type="dataset") if entry.path.endswith(".parquet"))
     except OSError as error:
         raise Error("Failed to download from Hugging Face.", detail=f"{source.repo}/{source.folder}: {error}", hint="Check the network and SOURCE_REGISTRY, then run the download stage again.", code=25)
     random.Random(FILE_ORDER_SEED).shuffle(paths)
     
-    # Download one file at a time, and count the characters of its texts, until the files hold the amount
+    # 1 ファイルずつダウンロードしてテキストの文字数を数え、量に達するまで続ける
     raw_dir.mkdir(parents=True, exist_ok=True)
     target = int(gb * CHARS_PER_GB) if gb is not None else None
     used   = list[str]()
@@ -88,7 +88,7 @@ def download_hf_text(raw_dir: Path, source: HFTextSource, gb: float | None) -> N
         size  += local.stat().st_size
         used.append(path)
     
-    # Save the files and the amount, and show what was downloaded
+    # ファイルと量を保存し、ダウンロードしたものを表示する
     files = {"repo": source.repo, "folder": source.folder, "text_column": source.text_column, "max_chars": target, "files": used, "chars_in_files": chars}
     (raw_dir / "files.json").write_text(json.dumps(files, indent=4), encoding="utf-8")
     Console().print(f"[Download] {source.repo}/{source.folder}: {len(used)} of {len(paths)} files ({size / 1e9:.2f} GB), with {chars / CHARS_PER_GB:.2f} GB of text. {(chars if target is None else min(chars, target)) / CHARS_PER_GB:.2f} GB of it is used.")
@@ -99,18 +99,18 @@ def download_hf_text(raw_dir: Path, source: HFTextSource, gb: float | None) -> N
 
 def read_hf_text(raw_dir: Path) -> Iterator[CorpusItem]:
     '''
-    #* Give the texts in the files of raw_dir/files.json one by one, each as one text item, until they reach the amount of the download stage.
-    #? Called from corpus.py by the split, tokenizer, and binarize stages, which must see the same texts in the same order.
-    #! Spaces at both ends are removed, and empty texts are skipped.
+    #* raw_dir/files.json のファイルのテキストを、1 つずつテキストの項目として渡す。ダウンロードの段階の量に達したら終わる。
+    #? corpus.py の split、tokenizer、binarize の段階から呼ぶ。どの段階も、同じテキストを同じ順で見る必要がある。
+    #! 両端の空白は取り除き、空のテキストは飛ばす。
     '''
     
-    # Read the list of the files
+    # ファイルの一覧を読む
     files_path = raw_dir / "files.json"
     if not files_path.exists():
         raise Error("Downloaded files are missing.", detail=f"Missing: {files_path}", hint="Run python -m tool.data download with the same dataset flags.", code=26)
     files      = json.loads(files_path.read_text(encoding="utf-8"))
     
-    # Give the texts until they reach the amount
+    # 量に達するまでテキストを渡す
     texts = (text for path in files["files"] for batch in pq.ParquetFile(raw_dir / path).iter_batches(batch_size=READ_BATCH, columns=[files["text_column"]]) for text in batch.column(0).to_pylist())
     chars = 0
     for text in texts:
@@ -123,8 +123,8 @@ def read_hf_text(raw_dir: Path) -> Iterator[CorpusItem]:
 
 def download_tinystories(raw_dir: Path) -> None:
     '''
-    #* Download the two TinyStories GPT-4 text files, skipping existing files.
-    #! Downloads go to .part files first, so an interrupted download never looks finished.
+    #* TinyStories の GPT-4 版テキストファイル 2 つをダウンロードする。すでにあるファイルは飛ばす。
+    #! ダウンロードはまず .part ファイルに書くので、途中で止まったダウンロードが完了したように見えることはない。
     '''
     
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -148,8 +148,8 @@ def download_tinystories(raw_dir: Path) -> None:
 
 def read_tinystories(raw_dir: Path) -> Iterator[CorpusItem]:
     '''
-    #* Read nonempty stories in source file order, separated by the end-of-text marker.
-    #! Every stage must read the same stories in the same order.
+    #* 空でない物語を、ソースファイルの順に読む。物語の区切りは end-of-text の印。
+    #! どの段階も、同じ物語を同じ順で読む必要がある。
     '''
     
     paths = [raw_dir / name for name in SOURCE_FILES]

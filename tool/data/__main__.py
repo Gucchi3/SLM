@@ -1,5 +1,5 @@
 # @file __main__.py
-# @brief Prepare multiple text datasets with one shared tokenizer
+# @brief 複数のテキストデータを 1 つの共通トークナイザーで準備する
 
 from functools       import partial
 from pathlib         import Path
@@ -13,10 +13,10 @@ from .sources         import SOURCE_REGISTRY, download_hf_text, read_hf_text, do
 
 def choose_corpora(args: argparse.Namespace) -> Corpora:
     '''
-    #* Select entire datasets by flags, using format-specific downloaders and readers.
-    #! Omitted datasets are excluded from every stage, including tokenizer training.
+    #* フラグでデータセットを丸ごと選ぶ。ダウンロードと読み込みには形式ごとの関数を使う。
+    #! 選ばなかったデータセットは、トークナイザーの学習も含めてすべての段階から外れる。
     '''
-
+    
     if not any(getattr(args, name) for name in ("tinystories", *SOURCE_REGISTRY)):
         raise Error("No datasets selected.", hint="Select at least one dataset, such as --tinystories or --finemath.", code=24)
     corpora: Corpora = {}
@@ -30,9 +30,9 @@ def choose_corpora(args: argparse.Namespace) -> Corpora:
 
 def main() -> None:
     '''
-    #* Prepare selected datasets through the shared corpus pipeline.
+    #* 選んだデータセットを、共通のコーパス処理で準備する。
     '''
-
+    
     options = argparse.ArgumentParser(add_help=False)
     for name in ("tinystories", *SOURCE_REGISTRY):
         options.add_argument(f"--{name}", action="store_true", help="Use the entire dataset (omitted by default)")

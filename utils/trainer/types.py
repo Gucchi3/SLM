@@ -1,5 +1,5 @@
 # @file types.py
-# @brief Training types
+# @brief 学習の型
 
 from dataclasses              import dataclass
 from torch                    import nn
@@ -15,8 +15,8 @@ from utils.trainer.optimization import LossKind
 @dataclass(frozen=True)
 class Metrics:
     '''
-    #* Hold the loss and the accuracy of the batches between two validations, or of one pass over a loader.
-    #! accuracy counts only the targets that are not skipped (-100).
+    #* 2 回の検証の間のバッチ、またはローダー 1 周分の損失と正解率を持つ。
+    #! accuracy は飛ばさない (-100 でない) 正解だけを数える。
     '''
     
     loss    : float
@@ -26,7 +26,7 @@ class Metrics:
     @property
     def perplexity(self) -> float:
         '''
-        #* Return the perplexity, exp(loss). It is inf, not an error, when the loss is too large (such as after the training breaks).
+        #* perplexity、exp(loss) を返す。損失が大きすぎるとき (学習が壊れた後など) はエラーにせず inf になる。
         '''
         
         return torch.tensor(self.loss, dtype=torch.float64).exp().item()
@@ -35,7 +35,7 @@ class Metrics:
 @dataclass(frozen=True)
 class TrainingComponents:
     '''
-    #* Group the loss and its kind, the optimizer, and the scheduler.
+    #* 損失とその種類、最適化器、スケジューラーをまとめる。
     '''
     
     loss_fn  : nn.Module
@@ -47,9 +47,9 @@ class TrainingComponents:
 @dataclass
 class TrainState:
     '''
-    #* Hold where the training is: the number of weight updates, the place in the train data, the best (lowest) validation perplexity, and the history.
-    #? Made by pipeline_train() in pipeline.py, from the start or from train.resume. train_steps() and loop_train() move it, and loop_train() saves it to train_state.pt.
-    #! batch is the number of micro-batches already used in the epoch. It is not frozen, because the training changes it.
+    #* 学習がどこまで進んだかを持つ: 重みの更新回数、train データの位置、検証の最良 (一番低い) perplexity、履歴。
+    #? pipeline.py の pipeline_train() が、最初からか train.resume から作る。train_steps() と loop_train() が進め、loop_train() が train_state.pt に保存する。
+    #! batch は、そのエポックですでに使った micro-batch の数。学習が変えるので frozen にはしない。
     '''
     
     step     : int

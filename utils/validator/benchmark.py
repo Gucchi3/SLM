@@ -1,12 +1,12 @@
 # @file benchmark.py
-# @brief Measure a model on the tests of the Tiny-ML Leaderboard (BLiMP, ARC-Easy, WikiText-2) and the Open SLM Leaderboard (HellaSwag, ARC-Easy, ARC-Challenge, PIQA, ArithMark-3, Int Index) by the rules of each leaderboard
+# @brief Tiny-ML Leaderboard (BLiMP、ARC-Easy、WikiText-2) と Open SLM Leaderboard (HellaSwag、ARC-Easy、ARC-Challenge、PIQA、ArithMark-3、Int Index) のテストで、各リーダーボードの決まりどおりにモデルを測る
 
 ##########################################################
 '''
-Add a benchmark
-1. Write benchmark_xxx(model, tokenizer, device, data_dir, max_length, batch_size) to return a dict of scores.
-2. Add "name: (leaderboard, benchmark_xxx)" to BENCHMARK_REGISTRY. The scores are shown in the table under the name of the leaderboard.
-3. Add the name to validator.benchmark.tasks.
+ベンチマークの追加
+1. スコアの辞書を返す benchmark_xxx(model, tokenizer, device, data_dir, max_length, batch_size) を書く。
+2. BENCHMARK_REGISTRY に "名前: (リーダーボード, benchmark_xxx)" を足す。スコアは表の中で、そのリーダーボードの名前の下に表示される。
+3. validator.benchmark.tasks にその名前を足す。
 '''
 ##########################################################
 
@@ -33,7 +33,7 @@ from .score           import score_continuations, score_texts
 
 BenchmarkFunction = Callable[[nn.Module, Tokenizer, torch.device, Path, int, int], dict[str, float]]
 
-# The 67 BLiMP tests (1,000 sentence pairs each), the same as in benchmark.py of Glint-1.3
+# BLiMP の 67 のテスト (それぞれ 1,000 の文の組)。Glint-1.3 の benchmark.py と同じ
 BLIMP_CONFIGS = (
     "adjunct_island", "anaphor_gender_agreement", "anaphor_number_agreement", "animate_subject_passive", "animate_subject_trans", "causative", "complex_NP_island",
     "coordinate_structure_constraint_complex_left_branch", "coordinate_structure_constraint_object_extraction", "determiner_noun_agreement_1", "determiner_noun_agreement_2",
@@ -49,11 +49,11 @@ BLIMP_CONFIGS = (
     "wh_vs_that_with_gap_long_distance",
 )
 
-# The commit of AxiomicLabs/Arithmark-3.0 on the Hugging Face Hub, with the arithmark-3.jsonl (1,000 questions) that the Open SLM Leaderboard uses
+# Hugging Face Hub の AxiomicLabs/Arithmark-3.0 のコミット。Open SLM Leaderboard が使う arithmark-3.jsonl (1,000 問) を含む
 ARITHMARK3_REVISION = "6f6e59dd9b7e2c63455f7af7f838f9ecc3d0a746"
 
-# The parts of the Int Index (Intelligence Index) of the Open SLM Leaderboard: (name, score of random guessing (%), weight), in the order of getIntelligenceIndex() of the leaderboard page
-# "arc" is the mean of arc_easy and arc_challenge
+# Open SLM Leaderboard の Int Index (Intelligence Index) の項目: (名前, でたらめに選んだときのスコア (%), 重み)。順番はリーダーボードのページの getIntelligenceIndex() と同じ
+# "arc" は arc_easy と arc_challenge の平均
 INT_INDEX_PARTS = (
     ("hellaswag" , 25.0, 1.0 ),
     ("arc"       , 25.0, 1.0 ),
@@ -65,10 +65,10 @@ INT_INDEX_PARTS = (
 
 def _benchmark_download(repo: str, paths: list[str], folder: Path, revision: str | None = None) -> list[Path]:
     '''
-    #* Download files of a dataset on the Hugging Face Hub into folder, and return their local paths.
-    #? Used by the benchmark_xxx() functions.
-    #! A file that is already in folder is not downloaded again, so the tests run without the network after the first time.
-    #! revision fixes the commit of the dataset. With None, the newest files are downloaded, as lm-evaluation-harness does.
+    #* Hugging Face Hub のデータセットのファイルを folder にダウンロードし、手元のパスを返す。
+    #? benchmark_xxx() の関数が使う。
+    #! folder にすでにあるファイルはダウンロードし直さないので、2 回目からはネットワーク無しでテストできる。
+    #! revision はデータセットのコミットを固定する。None なら、lm-evaluation-harness と同じく一番新しいファイルをダウンロードする。
     '''
     
     for path in paths:
@@ -82,10 +82,10 @@ def _benchmark_download(repo: str, paths: list[str], folder: Path, revision: str
 
 def _benchmark_score(model: nn.Module, device: torch.device, batch_size: int, name: str, questions: list[list[tuple[list[int], list[int], str]]], size: int) -> tuple[list[list[float]], list[int]]:
     '''
-    #* Return the choice log-likelihoods of each evaluated question, and its original index.
-    #? Used by _benchmark_choices() and benchmark_arithmark3(). size is data.max_length + 1 for lm-evaluation-harness, and data.max_length for bencharithmark-3.py.
-    #! If any choice exceeds size - 1 tokens, the whole question is skipped. Otherwise, only the first context tokens are cut. Both counts are shown.
-    #! Empty contexts or choices, size < 2, and no evaluable questions stop with error 38.
+    #* 評価した各問題の選択肢の対数尤度と、元の番号を返す。
+    #? _benchmark_choices() と benchmark_arithmark3() が使う。size は lm-evaluation-harness では data.max_length + 1、bencharithmark-3.py では data.max_length。
+    #! どれかの選択肢が size - 1 トークンを超えると、その問題は丸ごと飛ばす。そうでなければ、文脈の先頭のトークンだけを切る。どちらの数も表示する。
+    #! 文脈や選択肢が空、size < 2、評価できる問題が無いときは、エラー 38 で止める。
     '''
     
     requests = list[tuple[list[int], int]]()
@@ -119,20 +119,20 @@ def _benchmark_score(model: nn.Module, device: torch.device, batch_size: int, na
 
 def _benchmark_choices(model: nn.Module, tokenizer: Tokenizer, device: torch.device, max_length: int, batch_size: int, name: str, questions: list[tuple[str, list[str], int]]) -> dict[str, float]:
     '''
-    #* Answer each (context, choices, answer) question by the rules of lm-evaluation-harness (multiple_choice, zero-shot), and return the accuracy (%) with and without length normalization.
-    #? Used by benchmark_hellaswag(), benchmark_arc_easy(), benchmark_arc_challenge(), and benchmark_piqa(). The rules follow _encode_pair() and _loglikelihood_tokens() of lm-evaluation-harness.
-    #! Each choice is scored as " " + choice after the context. The spaces at the end of the context move to the front of the choice. The tokens of the choice are the tokens of context + " " + choice after as many tokens as the context alone has.
-    #! When the context and the choice have more than max_length + 1 tokens, the first context tokens are cut. If any choice exceeds max_length tokens, the whole question is skipped and excluded from the accuracy denominator.
-    #! name gets acc_norm, the number on the leaderboard (the largest log-likelihood / the number of characters of the choice), and name_acc gets acc (the largest log-likelihood). On a tie, the first choice wins.
+    #* (文脈, 選択肢, 答え) の各問題に lm-evaluation-harness の決まり (multiple_choice、zero-shot) で答え、長さで正規化した正解率と、しない正解率 (%) を返す。
+    #? benchmark_hellaswag()、benchmark_arc_easy()、benchmark_arc_challenge()、benchmark_piqa() が使う。決まりは lm-evaluation-harness の _encode_pair() と _loglikelihood_tokens() に従う。
+    #! 各選択肢は、文脈の後の " " + 選択肢 として点を付ける。文脈の最後の空白は選択肢の先頭へ移す。選択肢のトークンは、文脈 + " " + 選択肢 のトークンのうち、文脈だけのトークン数より後ろの部分。
+    #! 文脈と選択肢が max_length + 1 トークンを超えるときは、文脈の先頭のトークンを切る。どれかの選択肢が max_length トークンを超えると、その問題は丸ごと飛ばし、正解率の分母からも外す。
+    #! name には acc_norm (リーダーボードの数字。対数尤度 / 選択肢の文字数 が一番大きいもの) を、name_acc には acc (対数尤度が一番大きいもの) を入れる。同点なら最初の選択肢を選ぶ。
     '''
     
-    # Make the tokens of each choice after its context
+    # 各選択肢のトークンを、その文脈の後ろに作る
     pairs = list[list[tuple[list[int], list[int], str]]]()
     for context, choices, _ in questions:
         context_ids  = tokenizer.encode(context.rstrip()).ids
         pairs.append([(context_ids, tokenizer.encode(context + " " + choice).ids[len(context_ids):], choice) for choice in choices])
     
-    # Choose the choice with the largest log-likelihood, with and without dividing it by the number of characters of the choice
+    # 対数尤度が一番大きい選択肢を、選択肢の文字数で割る場合と割らない場合で選ぶ
     scores, indices = _benchmark_score(model, device, batch_size, name, pairs, max_length + 1)
     acc, acc_norm   = 0, 0
     for index, totals in zip(indices, scores):
@@ -145,9 +145,9 @@ def _benchmark_choices(model: nn.Module, tokenizer: Tokenizer, device: torch.dev
 
 def _benchmark_hellaswag_text(text: str) -> str:
     '''
-    #* Clean a text of HellaSwag, as preprocess() in tasks/hellaswag/utils.py of lm-evaluation-harness does.
-    #? Used by benchmark_hellaswag().
-    #! " [title]" becomes ". ", the other words in square brackets (marks of the WikiHow part) are removed, and each double space becomes one space (only once).
+    #* HellaSwag のテキストを、lm-evaluation-harness の tasks/hellaswag/utils.py の preprocess() と同じように整える。
+    #? benchmark_hellaswag() が使う。
+    #! " [title]" は ". " にし、ほかの角かっこの語 (WikiHow の部分の印) は消し、2 つ続いた空白は 1 つにする (1 回だけ)。
     '''
     
     text = text.strip().replace(" [title]", ". ")
@@ -156,15 +156,15 @@ def _benchmark_hellaswag_text(text: str) -> str:
 
 def benchmark_blimp(model: nn.Module, tokenizer: Tokenizer, device: torch.device, data_dir: Path, max_length: int, batch_size: int) -> dict[str, float]:
     '''
-    #* Return the BLiMP accuracy (%): the share of the 67,000 sentence pairs where the grammatical sentence gets the larger sum of log probabilities.
-    #! Each sentence is cut to max_length tokens. A tie counts as wrong.
+    #* BLiMP の正解率 (%) を返す: 67,000 の文の組のうち、文法的に正しい文の対数確率の合計が大きかった組の割合。
+    #! 各文は max_length トークンで切る。同点は不正解として数える。
     '''
     
-    # Read the sentence pairs of the 67 tests
+    # 67 のテストの文の組を読む
     files = _benchmark_download("nyu-mll/blimp", [f"{name}/train-00000-of-00001.parquet" for name in BLIMP_CONFIGS], data_dir / "blimp")
     pairs = [(row["sentence_good"], row["sentence_bad"]) for path in files for row in pq.read_table(path, columns=["sentence_good", "sentence_bad"]).to_pylist()]
     
-    # Score both sentences of each pair, and count the pairs where the grammatical one is more likely
+    # 各組の 2 つの文に点を付け、文法的に正しい文の方が確率が高い組を数える
     good = score_texts(model, [tokenizer.encode(sentence).ids[:max_length] for sentence, _ in pairs], device, batch_size)
     bad  = score_texts(model, [tokenizer.encode(sentence).ids[:max_length] for _, sentence in pairs], device, batch_size)
     return {"blimp": 100 * sum(good_score > bad_score for good_score, bad_score in zip(good, bad)) / len(pairs), "blimp_pairs": len(pairs)}
@@ -172,18 +172,18 @@ def benchmark_blimp(model: nn.Module, tokenizer: Tokenizer, device: torch.device
 
 def benchmark_arc_easy_tinyml(model: nn.Module, tokenizer: Tokenizer, device: torch.device, data_dir: Path, max_length: int, batch_size: int) -> dict[str, float]:
     '''
-    #* Return the ARC-Easy accuracy (%) on the 2,376 test questions, by the rules of the Tiny-ML Leaderboard. Each question gets the choice with the largest log P(question + " " + choice) - log P(question).
-    #! The score is not divided by the length, and no prompt format (such as "Question:") is added. Each text is cut to max_length tokens. On a tie, the first choice wins.
-    #! The Open SLM Leaderboard uses other rules for ARC-Easy, so its score comes from benchmark_arc_easy().
+    #* Tiny-ML Leaderboard の決まりで、ARC-Easy の 2,376 のテスト問題の正解率 (%) を返す。各問題では log P(問題 + " " + 選択肢) - log P(問題) が一番大きい選択肢を選ぶ。
+    #! 点は長さで割らず、"Question:" のようなプロンプトの形も足さない。各テキストは max_length トークンで切る。同点なら最初の選択肢を選ぶ。
+    #! Open SLM Leaderboard は ARC-Easy に別の決まりを使うので、そのスコアは benchmark_arc_easy() で求める。
     '''
     
-    # Score each question alone and with each of its choices, all in the same batches
+    # 各問題を単独で、また各選択肢付きで、すべて同じバッチで点を付ける
     files  = _benchmark_download("allenai/ai2_arc", ["ARC-Easy/test-00000-of-00001.parquet"], data_dir / "arc")
     rows   = pq.read_table(files[0]).to_pylist()
     texts  = [text for row in rows for text in (row["question"], *(row["question"] + " " + choice for choice in row["choices"]["text"]))]
     scores = iter(score_texts(model, [tokenizer.encode(text).ids[:max_length] for text in texts], device, batch_size))
     
-    # Choose the choice whose log probability grows most from the question alone
+    # 問題だけのときから対数確率が一番大きく増える選択肢を選ぶ
     correct = 0
     for row in rows:
         question = next(scores)
@@ -194,18 +194,18 @@ def benchmark_arc_easy_tinyml(model: nn.Module, tokenizer: Tokenizer, device: to
 
 def benchmark_wikitext2(model: nn.Module, tokenizer: Tokenizer, device: torch.device, data_dir: Path, max_length: int, batch_size: int) -> dict[str, float]:
     '''
-    #* Return the perplexity of WikiText-2 (raw, test) for each byte (byte_ppl, the number on the leaderboard) and for each token.
-    #! The lines are joined with spaces into one text. Its tokens are cut into windows of max_length + 1 tokens that do not overlap, and each window is scored alone.
-    #! byte_ppl = exp(the negative log-likelihood of all the scored tokens / the UTF-8 bytes of the text), so models with other tokenizers can be compared.
+    #* WikiText-2 (raw、test) の perplexity を、バイトごと (byte_ppl、リーダーボードの数字) とトークンごとに返す。
+    #! 行を空白でつないで 1 つのテキストにする。そのトークンを重ならない max_length + 1 トークンの窓に切り、各窓に単独で点を付ける。
+    #! byte_ppl = exp(点を付けた全トークンの負の対数尤度 / テキストの UTF-8 のバイト数)。だからトークナイザーの違うモデルどうしでも比べられる。
     '''
     
-    # Join the lines into one text, and cut its tokens into windows that move by max_length tokens
+    # 行をつないで 1 つのテキストにし、トークンを max_length トークンずつずれる窓に切る
     files   = _benchmark_download("Salesforce/wikitext", ["wikitext-2-raw-v1/test-00000-of-00001.parquet"], data_dir / "wikitext")
     text    = " ".join(pq.read_table(files[0], columns=["text"]).column(0).to_pylist()).strip()
     ids     = tokenizer.encode(text).ids
     windows = [ids[start:start + max_length + 1] for start in range(0, len(ids) - 1, max_length)]
     
-    # Add the negative log-likelihood of all the windows
+    # 全部の窓の負の対数尤度を足す
     nll    = -sum(score_texts(model, windows, device, batch_size))
     tokens = sum(len(window) - 1 for window in windows)
     return {"wikitext2_byte_ppl": math.exp(nll / len(text.encode("utf-8"))), "wikitext2_token_ppl": math.exp(nll / tokens), "wikitext2_tokens": tokens}
@@ -213,9 +213,9 @@ def benchmark_wikitext2(model: nn.Module, tokenizer: Tokenizer, device: torch.de
 
 def benchmark_hellaswag(model: nn.Module, tokenizer: Tokenizer, device: torch.device, data_dir: Path, max_length: int, batch_size: int) -> dict[str, float]:
     '''
-    #* Return the HellaSwag accuracy (%) on the 10,042 validation questions, by the rules of lm-evaluation-harness that the Open SLM Leaderboard uses.
-    #! The context is activity_label + ": " + ctx_a + " " + ctx_b (with str.capitalize(), which also makes the other letters small), and the 4 choices are the endings. All are cleaned by _benchmark_hellaswag_text().
-    #! "hellaswag" is acc_norm, the number on the leaderboard. See _benchmark_choices() for the scoring.
+    #* Open SLM Leaderboard が使う lm-evaluation-harness の決まりで、HellaSwag の 10,042 の validation 問題の正解率 (%) を返す。
+    #! 文脈は activity_label + ": " + ctx_a + " " + ctx_b (str.capitalize() を使うので、ほかの文字は小文字になる)、4 つの選択肢は endings。すべて _benchmark_hellaswag_text() で整える。
+    #! "hellaswag" は acc_norm (リーダーボードの数字)。点の付け方は _benchmark_choices() を参照。
     '''
     
     files     = _benchmark_download("Rowan/hellaswag", ["data/validation-00000-of-00001.parquet"], data_dir / "hellaswag")
@@ -226,9 +226,9 @@ def benchmark_hellaswag(model: nn.Module, tokenizer: Tokenizer, device: torch.de
 
 def benchmark_arc_easy(model: nn.Module, tokenizer: Tokenizer, device: torch.device, data_dir: Path, max_length: int, batch_size: int) -> dict[str, float]:
     '''
-    #* Return the ARC-Easy accuracy (%) on the 2,376 test questions, by the rules of lm-evaluation-harness that the Open SLM Leaderboard uses.
-    #! The context is "Question: " + question + "\\nAnswer:". The data is the same as in benchmark_arc_easy_tinyml() (the Tiny-ML Leaderboard), but the rules are not, so the two scores differ.
-    #! "arc_easy" is acc_norm, the number on the leaderboard. See _benchmark_choices() for the scoring.
+    #* Open SLM Leaderboard が使う lm-evaluation-harness の決まりで、ARC-Easy の 2,376 のテスト問題の正解率 (%) を返す。
+    #! 文脈は "Question: " + question + "\\nAnswer:"。データは benchmark_arc_easy_tinyml() (Tiny-ML Leaderboard) と同じだが、決まりが違うので 2 つのスコアは一致しない。
+    #! "arc_easy" は acc_norm (リーダーボードの数字)。点の付け方は _benchmark_choices() を参照。
     '''
     
     files     = _benchmark_download("allenai/ai2_arc", ["ARC-Easy/test-00000-of-00001.parquet"], data_dir / "arc")
@@ -239,8 +239,8 @@ def benchmark_arc_easy(model: nn.Module, tokenizer: Tokenizer, device: torch.dev
 
 def benchmark_arc_challenge(model: nn.Module, tokenizer: Tokenizer, device: torch.device, data_dir: Path, max_length: int, batch_size: int) -> dict[str, float]:
     '''
-    #* Return the ARC-Challenge accuracy (%) on the 1,172 test questions, by the rules of lm-evaluation-harness that the Open SLM Leaderboard uses.
-    #! The context is "Question: " + question + "\\nAnswer:". "arc_challenge" is acc_norm, the number on the leaderboard. See _benchmark_choices() for the scoring.
+    #* Open SLM Leaderboard が使う lm-evaluation-harness の決まりで、ARC-Challenge の 1,172 のテスト問題の正解率 (%) を返す。
+    #! 文脈は "Question: " + question + "\\nAnswer:"。"arc_challenge" は acc_norm (リーダーボードの数字)。点の付け方は _benchmark_choices() を参照。
     '''
     
     files     = _benchmark_download("allenai/ai2_arc", ["ARC-Challenge/test-00000-of-00001.parquet"], data_dir / "arc")
@@ -251,8 +251,8 @@ def benchmark_arc_challenge(model: nn.Module, tokenizer: Tokenizer, device: torc
 
 def benchmark_piqa(model: nn.Module, tokenizer: Tokenizer, device: torch.device, data_dir: Path, max_length: int, batch_size: int) -> dict[str, float]:
     '''
-    #* Return the PIQA accuracy (%) on the 1,838 validation questions, by the rules of lm-evaluation-harness that the Open SLM Leaderboard uses.
-    #! The context is "Question: " + goal + "\\nAnswer:", and the 2 choices are sol1 and sol2. "piqa" is acc_norm, the number on the leaderboard. See _benchmark_choices() for the scoring.
+    #* Open SLM Leaderboard が使う lm-evaluation-harness の決まりで、PIQA の 1,838 の validation 問題の正解率 (%) を返す。
+    #! 文脈は "Question: " + goal + "\\nAnswer:"、2 つの選択肢は sol1 と sol2。"piqa" は acc_norm (リーダーボードの数字)。点の付け方は _benchmark_choices() を参照。
     '''
     
     files     = _benchmark_download("baber/piqa", ["piqa_validation.parquet"], data_dir / "piqa")
@@ -263,25 +263,25 @@ def benchmark_piqa(model: nn.Module, tokenizer: Tokenizer, device: torch.device,
 
 def benchmark_arithmark3(model: nn.Module, tokenizer: Tokenizer, device: torch.device, data_dir: Path, max_length: int, batch_size: int) -> dict[str, float]:
     '''
-    #* Return the ArithMark-3 accuracy (%) on the 1,000 math word problems, by the rules of bencharithmark-3.py, the official script that the Open SLM Leaderboard uses.
-    #! Unlike lm-evaluation-harness, the context and each ending are encoded apart (without special tokens) and joined. The first tokens of the context are cut, so that both fit in max_length tokens.
-    #! If any ending has max_length or more tokens, the whole question is skipped and excluded from the accuracy denominator (the official script stops at it).
-    #! "arithmark3" is acc_norm, the number on the leaderboard (the largest log-likelihood / the number of tokens of the ending), and "arithmark3_acc" is acc (the largest log-likelihood). On a tie, the first ending wins.
-    #! The official script runs in bfloat16 by default. This runs in float32, its --dtype float32 setting, as the other tests do.
+    #* Open SLM Leaderboard が使う公式のスクリプト bencharithmark-3.py の決まりで、ArithMark-3 の 1,000 の算数の文章題の正解率 (%) を返す。
+    #! lm-evaluation-harness と違い、文脈と各結末は別々に (特殊トークン無しで) エンコードしてからつなぐ。両方が max_length トークンに収まるよう、文脈の先頭のトークンを切る。
+    #! どれかの結末が max_length トークン以上なら、その問題は丸ごと飛ばし、正解率の分母からも外す (公式のスクリプトはそこで止まる)。
+    #! "arithmark3" は acc_norm (リーダーボードの数字。対数尤度 / 結末のトークン数 が一番大きいもの)、"arithmark3_acc" は acc (対数尤度が一番大きいもの)。同点なら最初の結末を選ぶ。
+    #! 公式のスクリプトの既定は bfloat16。ここではほかのテストと同じく、その --dtype float32 の設定にあたる float32 で動かす。
     '''
     
-    # Read the questions, one JSON object in each line that is not empty
+    # 問題を読む (空でない各行に JSON のオブジェクトが 1 つ)
     files = _benchmark_download("AxiomicLabs/Arithmark-3.0", ["arithmark-3.jsonl"], data_dir / "arithmark3", ARITHMARK3_REVISION)
     with files[0].open(encoding="utf-8-sig") as handle:
         items = [json.loads(line) for line in handle if line.strip()]
     
-    # Make the tokens of each ending after its context
+    # 各結末のトークンを、その文脈の後ろに作る
     pairs = list[list[tuple[list[int], list[int], str]]]()
     for item in items:
         context_ids  = tokenizer.encode(item["ctx"], add_special_tokens=False).ids
         pairs.append([(context_ids, tokenizer.encode(ending, add_special_tokens=False).ids, ending) for ending in item["endings"]])
     
-    # Choose the ending with the largest log-likelihood, with and without dividing it by the number of tokens of the ending
+    # 対数尤度が一番大きい結末を、結末のトークン数で割る場合と割らない場合で選ぶ
     scores, indices = _benchmark_score(model, device, batch_size, "arithmark3", pairs, max_length)
     acc, acc_norm   = 0, 0
     for index, totals in zip(indices, scores):
@@ -306,14 +306,14 @@ BENCHMARK_REGISTRY: dict[str, tuple[str, BenchmarkFunction]] = {
 
 def benchmark_int_index(scores: dict[str, float]) -> dict[str, float]:
     '''
-    #* Return the Int Index ("int_index") and the Avg ("open_slm_avg") of the Open SLM Leaderboard from the scores (%) of HellaSwag, ARC, PIQA, and ArithMark-3.
-    #? Called by benchmark_tasks(). The math is the same as getIntelligenceIndex() and getAvg() of the leaderboard page.
-    #! Int Index: each score s becomes 100 * (s - chance) / (100 - chance), so that random guessing is 0 and all correct is 100 (below chance, it is less than 0), and these are averaged with the weights of INT_INDEX_PARTS.
-    #! The ARC part is the mean of arc_easy and arc_challenge before the change (or the one that was run). Avg is the plain mean of the parts without the change.
-    #! A part that was not run is left out of both means. With fewer than 2 parts, an empty dict is returned. The values are not rounded (the leaderboard shows 2 decimals).
+    #* HellaSwag、ARC、PIQA、ArithMark-3 のスコア (%) から、Open SLM Leaderboard の Int Index ("int_index") と Avg ("open_slm_avg") を返す。
+    #? benchmark_tasks() から呼ぶ。計算はリーダーボードのページの getIntelligenceIndex() と getAvg() と同じ。
+    #! Int Index: 各スコア s を 100 * (s - でたらめのスコア) / (100 - でたらめのスコア) にし、でたらめで 0、全問正解で 100 になるようにして (でたらめより低いと 0 未満)、INT_INDEX_PARTS の重みで平均する。
+    #! ARC の項目は、変換前の arc_easy と arc_challenge の平均 (片方だけ実行したときはその値)。Avg は変換しない項目の単純な平均。
+    #! 実行していない項目は、どちらの平均からも外す。項目が 2 つ未満なら空の辞書を返す。値は丸めない (リーダーボードは小数 2 桁で表示する)。
     '''
     
-    # Take the parts that were run. The ARC part is the mean of the two ARC scores, or the one that was run
+    # 実行した項目を取り出す。ARC の項目は 2 つの ARC のスコアの平均か、実行した方
     values = {name: scores[name] for name in ("hellaswag", "piqa", "arithmark3") if name in scores}
     arcs   = [scores[name] for name in ("arc_easy", "arc_challenge") if name in scores]
     if arcs:
@@ -322,7 +322,7 @@ def benchmark_int_index(scores: dict[str, float]) -> dict[str, float]:
     if len(parts) < 2:
         return {}
     
-    # Add the parts one by one from the left, as the leaderboard page does (sum() of Python 3.12 or later adds with more precision, so its last digits can differ)
+    # リーダーボードのページと同じく、左から 1 つずつ足す (Python 3.12 以降の sum() はより精密に足すので、最後の桁が変わることがある)
     index_total, index_weight, avg_total = 0.0, 0.0, 0.0
     for score, chance, weight in parts:
         index_total  += (score - chance) / (100 - chance) * 100 * weight
@@ -333,8 +333,8 @@ def benchmark_int_index(scores: dict[str, float]) -> dict[str, float]:
 
 def benchmark_check(config: SimpleNamespace) -> None:
     '''
-    #* Stop with an error when validator.benchmark.tasks has a name that is not in BENCHMARK_REGISTRY.
-    #? Called by benchmark_model(), and by pipeline_train() in utils/trainer/pipeline.py before a training without test data, so that a wrong name stops the run before the training.
+    #* validator.benchmark.tasks に BENCHMARK_REGISTRY に無い名前があれば、エラーで止める。
+    #? benchmark_model() と、test データの無い学習の前の pipeline_train() (utils/trainer/pipeline.py) から呼ぶ。名前が間違っていれば、学習の前に止まる。
     '''
     
     unknown = [name for name in config.validator.benchmark.tasks if name not in BENCHMARK_REGISTRY]
@@ -345,13 +345,13 @@ def benchmark_check(config: SimpleNamespace) -> None:
 
 def benchmark_tasks(model: nn.Module, tokenizer: Tokenizer, device: torch.device, config: SimpleNamespace, folder: Path, weights: str | None) -> dict[str, float]:
     '''
-    #* Run the tests in validator.benchmark.tasks on the model, add the Int Index and the Avg of the Open SLM Leaderboard, show the scores in a table, and save them with the name of the weights to folder/benchmark.json.
-    #? Called by benchmark_model(), and by pipeline_train() in utils/trainer/pipeline.py after a training without test data. Call benchmark_check() first.
-    #! The Tiny-ML Leaderboard tests follow benchmark.py of Glint-1.3, and the Open SLM Leaderboard tests follow lm-evaluation-harness and bencharithmark-3.py. All run in float32 without a BOS token, and the model reads up to data.max_length tokens.
-    #! The data is downloaded into validator.benchmark.data_dir the first time.
+    #* validator.benchmark.tasks のテストをモデルで実行し、Open SLM Leaderboard の Int Index と Avg を足して、スコアを表で表示し、重みの名前と一緒に folder/benchmark.json に保存する。
+    #? benchmark_model() と、test データの無い学習の後の pipeline_train() (utils/trainer/pipeline.py) から呼ぶ。先に benchmark_check() を呼んでおく。
+    #! Tiny-ML Leaderboard のテストは Glint-1.3 の benchmark.py に、Open SLM Leaderboard のテストは lm-evaluation-harness と bencharithmark-3.py に従う。すべて BOS トークン無しの float32 で動き、モデルは data.max_length トークンまで読む。
+    #! データは初回に validator.benchmark.data_dir にダウンロードする。
     '''
     
-    # Run each test, and keep the names of the scores of each leaderboard
+    # 各テストを実行し、リーダーボードごとのスコアの名前を覚える
     settings = config.validator.benchmark
     console  = Console()
     scores   = dict[str, float]()
@@ -363,13 +363,13 @@ def benchmark_tasks(model: nn.Module, tokenizer: Tokenizer, device: torch.device
         scores               |= result
         groups.setdefault(leaderboard, []).extend(result)
     
-    # Add the Int Index and the Avg when 2 or more of their parts were run
+    # 項目が 2 つ以上実行されていれば、Int Index と Avg を足す
     index = benchmark_int_index(scores)
     if index:
         scores |= index
         groups.setdefault("Open SLM", []).extend(index)
     
-    # Show the scores of each leaderboard in its own part of the table, with the Int Index and the Avg in bold
+    # 各リーダーボードのスコアを表のそれぞれの部分に表示する (Int Index と Avg は太字)
     table = Table(title="Benchmark", min_width=40)
     table.add_column("Leaderboard", style="bold magenta")
     table.add_column("Score"      , style="bold cyan"   )
@@ -381,7 +381,7 @@ def benchmark_tasks(model: nn.Module, tokenizer: Tokenizer, device: torch.device
         table.add_section()
     console.print(table)
     
-    # Save the scores with the name of the weights they belong to
+    # スコアを、それを出した重みの名前と一緒に保存する
     result = {"weights": weights, "tokenizer_dir": config.data.tokenizer_dir, "max_length": config.data.max_length, "date": datetime.now().isoformat(timespec="seconds"), "scores": scores}
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "benchmark.json").write_text(json.dumps(result, indent=4), encoding="utf-8")
@@ -391,9 +391,9 @@ def benchmark_tasks(model: nn.Module, tokenizer: Tokenizer, device: torch.device
 
 def benchmark_model(config: SimpleNamespace) -> None:
     '''
-    #* Load the model with the weights in model.checkpoint and its tokenizer, and run the tests in validator.benchmark.tasks with benchmark_tasks().
-    #? Chosen in main.py with run.mode (or --mode) benchmark. Uses load_model() in load.py.
-    #! benchmark.json goes next to the weights, or into run.log_dir when model.checkpoint is null.
+    #* model.checkpoint の重みでモデルとそのトークナイザーを読み込み、benchmark_tasks() で validator.benchmark.tasks のテストを実行する。
+    #? main.py で run.mode (または --mode) が benchmark のとき選ばれる。load.py の load_model() を使う。
+    #! benchmark.json は重みの隣に置く。model.checkpoint が null なら run.log_dir に置く。
     '''
     
     benchmark_check(config)
