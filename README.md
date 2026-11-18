@@ -4,7 +4,8 @@
 
 ```powershell
 uv venv --python 3.14
-uv pip install --python .venv -r pyproject.toml
+source .venv/bin/activate
+uv pip install -r pyproject.toml
 ```
 
 続いて、[PyTorch 公式](https://pytorch.org/get-started/locally/)で OS・CUDA に合うコマンドを選び、`pip3 install...` を `uv pip install...` に置き換えて実行します。
@@ -17,7 +18,7 @@ uv pip install --python .venv -r pyproject.toml
 指定したデータを全件取得・使用。未指定のデータは除外。
 
 ```powershell
-python -m tool.data all --tinystories --fineweb_edu --finemath --tokenizer_dir .\model\weight\hotaru
+python -m tool.data all --tinystories --fineweb_edu --finemath -- cosmopedia --tokenizer_dir .\model\weight\hotaru
 ```
 
 > [!WARNING]
