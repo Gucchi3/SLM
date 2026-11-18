@@ -17,7 +17,7 @@ class HybridLm(nn.Module):
     '''
     #* hybrid モデルを 1 つ持つ: トークン埋め込み (+ 学習する位置の表)、ブロック (loop.start から loop.end - 1 は同じ重みで何度も通す。周回ごとのループ埋め込みと LoRA も持てる)、最後の正規化、語彙への出力層。
     #? build_hybrid_model() (build_hybrid.py) が config.model.spec から作る。
-    #! forward() の attention_mask は hitokoto のほかの部分と形を合わせるためだけに受け取る。パディングには対応しないので、各トークンは前の全トークンを見る。
+    #! forward() の attention_mask は SLM のほかの部分と形を合わせるためだけに受け取る。パディングには対応しないので、各トークンは前の全トークンを見る。
     #! ループ埋め込みと LoRA を使わなければ、ループは自分の重みを持たないので、チェックポイントは times が違っても読み込める。使うときは times を学習時と同じにする。
     '''
     
