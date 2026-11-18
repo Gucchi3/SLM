@@ -1,5 +1,5 @@
 # @file test_build.py
-# @brief Tests of the hybrid models and the loop settings in model/build.py
+# @brief model/build.py のハイブリッドのモデルとループの設定のテスト
 # @author Kohei Yamaguchi, Claude
 
 from types import SimpleNamespace
@@ -12,7 +12,7 @@ from model.build      import MODEL_REGISTRY
 from model.hybrid     import HybridLm, HybridSpec
 from utils.exceptions import Error
 
-# The hybrid models asked for, with their blocks and the values that differ from the standard model
+# 頼まれたハイブリッドのモデル。ブロックと、標準のモデルと違う値を書く
 HYBRID_MODELS = {
     "a4-kvh4"      : ("aaaa", {"kv_heads": 4}),
     "c3a"          : ("ccca", {}),
@@ -30,16 +30,16 @@ HYBRID_MODELS = {
 @pytest.mark.parametrize("name", list(HYBRID_MODELS))
 def test_build_model_hybrid_names(name: str) -> None:
     '''
-    #* Each hybrid name makes the model of its blocks and tags, on top of the standard model, and runs.
+    #* ハイブリッドの名前ごとに、そのブロックとタグのモデルが、標準のモデルをもとに作られて動く。
     '''
     
-    # The registered shape: the standard values, with only the tags changed
+    # 登録された形: 標準の値で、タグだけを変えたもの
     mixers, tags = HYBRID_MODELS[name]
     entry        = MODEL_REGISTRY[name]
     assert entry == HybridSpec(mixers=mixers, **tags)
     assert (HybridSpec(mixers="").vocab_size, HybridSpec(mixers="").max_length, HybridSpec(mixers="").dim, HybridSpec(mixers="").heads, HybridSpec(mixers="").head_dim) == (4096, 1024, 256, 4, 64)
     
-    # The model has the blocks of the name, and gives logits over the vocabulary
+    # モデルが名前どおりのブロックを持ち、語彙の大きさの logits を返す
     model = build_model(name, None, SimpleNamespace(start=0, end=3, times=2))
     assert isinstance(model, HybridLm)
     assert "".join(str(block.mixer) for block in model.blocks) == mixers
@@ -57,7 +57,7 @@ def test_build_model_hybrid_names(name: str) -> None:
 ])
 def test_build_model_bad_loop(name: str, loop: SimpleNamespace, code: int) -> None:
     '''
-    #* A loop on a model without loops, an unknown key (such as the removed train_max), and values out of range stop with their error codes.
+    #* ループのないモデルにループを付けたとき、知らないキー（消した train_max など）があるとき、範囲の外の値のときは、それぞれのエラー番号で止まる。
     '''
     
     with pytest.raises(Error) as caught:
@@ -68,7 +68,7 @@ def test_build_model_bad_loop(name: str, loop: SimpleNamespace, code: int) -> No
 
 def test_build_model_good_loop_edges() -> None:
     '''
-    #* The loop over all blocks is allowed, and a missing key keeps its default value.
+    #* すべてのブロックにかかるループは使える。書いていないキーは標準の値のままになる。
     '''
     
     model = build_model("c3w", None, SimpleNamespace(start=1, end=4))

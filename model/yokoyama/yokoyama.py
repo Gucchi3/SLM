@@ -1,5 +1,5 @@
 # @file yokoyama.py
-# @brief Yokoyama, a causal language model based on the EmbBERT architecture
+# @brief EmbBERT の構造をもとにした causal な言語モデル Yokoyama
 
 from torch import nn
 
@@ -21,14 +21,14 @@ EPSILON           = 1e-5
 
 class NanoCausalEmbedder(nn.Module):
     '''
-    #* Map tokens to hidden vectors with reduced token and position embeddings.
-    #? This follows the Nano_Embedder used by the referenced EmbBERT implementation, without bidirectional sentence segments.
-    #! Token and position embeddings use the reduced dimension, then expand to the model hidden dimension.
+    #* 小さくしたトークンの埋め込みと位置の埋め込みで、トークンを隠れ層のベクトルに変える。
+    #? 参考にした EmbBERT の実装の Nano_Embedder に合わせている。ただし、双方向の文のセグメントは使わない。
+    #! トークンの埋め込みと位置の埋め込みは小さい次元で持ち、そのあとモデルの隠れ層の次元に広げる。
     '''
     
     def __init__(self) -> None:
         '''
-        #* Make the reduced token and position embeddings and their expansion layers.
+        #* 小さくしたトークンの埋め込みと位置の埋め込み、それを広げる層を作る。
         '''
         
         super().__init__()
@@ -40,7 +40,7 @@ class NanoCausalEmbedder(nn.Module):
     
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         '''
-        #* Return one hidden vector for every input token.
+        #* 入力のトークンごとに、隠れ層のベクトルを 1 つ返す。
         '''
         
         tokens    = input_ids.shape[1]
@@ -51,14 +51,14 @@ class NanoCausalEmbedder(nn.Module):
 
 class EfficientDifferentialSkipAttention(nn.Module):
     '''
-    #* Combine efficient causal attention with a depthwise causal convolution branch.
-    #? The attention and convolution equations follow the EfficientDifferentialSkipAttention in the referenced repository.
-    #! The convolution is left-padded by the framework and cut back to the input length, so it cannot read future tokens.
+    #* 効率のよい causal な attention と、depthwise の causal な畳み込みの枝を組み合わせる。
+    #? attention と畳み込みの式は、参考にしたリポジトリの EfficientDifferentialSkipAttention に合わせている。
+    #! 畳み込みは nn.Conv1d の padding で両端に 0 を足し、出力の初めから入力と同じ長さの分だけを使う。そのため、未来のトークンを読まない。
     '''
     
     def __init__(self) -> None:
         '''
-        #* Make the differential attention, convolution, activation, and contraction layers.
+        #* 差分の attention、畳み込み、活性化、縮める層を作る。
         '''
         
         super().__init__()
@@ -77,7 +77,7 @@ class EfficientDifferentialSkipAttention(nn.Module):
     
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         '''
-        #* Return the differential combination of the attention and convolution branches.
+        #* attention の枝と畳み込みの枝を差分で組み合わせた結果を返す。
         '''
         
         lambda_1 = torch.exp(torch.dot(self.lambda_q1, self.lambda_k1))
@@ -98,7 +98,7 @@ class EfficientDifferentialSkipAttention(nn.Module):
 
 def make_score_mask(input_mask: torch.Tensor) -> torch.Tensor:
     '''
-    #* Expand a padding mask into a score mask for every query position.
+    #* パディングのマスクを、query の位置ごとのスコアのマスクに広げる。
     '''
     
     batch_size, tokens = input_mask.shape
@@ -112,14 +112,14 @@ def make_score_mask(input_mask: torch.Tensor) -> torch.Tensor:
 
 class Yokoyama(nn.Module):
     '''
-    #* Hold the causal EmbGPT-style language model with a reduced embedder and differential skip attention.
-    #? Made by build_model() in model/build.py, with model.name = "yokoyama".
-    #! The model uses the EmbBERT base dimensions from the referenced project: 4096 tokens, hidden size 128, four layers, reduced embedding 16, expansion 1, kernel size 32, and context length 256.
+    #* 小さくした埋め込みと差分の skip attention を使う、EmbGPT 風の causal な言語モデル。
+    #? model/build.py の build_model() が、model.name = "yokoyama" のときに作る。
+    #! 参考にしたプロジェクトの EmbBERT の基本の次元を使う。トークン 4096 個、hidden size 128、層 4 つ、小さくした埋め込み 16、expansion 1、カーネルの大きさ 32、文脈の長さ 256。
     '''
     
     def __init__(self) -> None:
         '''
-        #* Make the embedder, pre-norm attention blocks, and tied-size language-model head.
+        #* 埋め込み、pre-norm の attention のブロック、言語モデルの head（隠れ層のベクトルから語彙の logits を出す線形層）を作る。
         '''
         
         super().__init__()
@@ -131,9 +131,9 @@ class Yokoyama(nn.Module):
     
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         '''
-        #* Return causal next-token logits of shape (batch, tokens, vocabulary).
-        #? Called from the trainer and validators through model/build.py.
-        #! Each token attends only to non-padding tokens at positions up to and including itself.
+        #* causal に、次のトークンの logits を返す。形は (batch, tokens, vocabulary)。
+        #? trainer と validator から、model/build.py を通して呼ぶ。
+        #! 各トークンは、自分の位置までにある、パディングでないトークンだけに attention する。
         '''
         
         tokens = input_ids.shape[1]

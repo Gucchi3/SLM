@@ -1,5 +1,5 @@
 # @file hotaru.py
-# @brief Hotaru, based on Yokoyama with fixed architecture constants
+# @brief Yokoyama をもとにして、構造の定数を固定した Hotaru
 
 from torch import nn
 
@@ -20,7 +20,7 @@ EPSILON           = 1e-5
 
 class NanoCausalEmbedder(nn.Module):
     '''
-    #* Expand reduced token and position embeddings to the hidden dimension.
+    #* 小さくしたトークンの埋め込みと位置の埋め込みを、隠れ層の次元に広げる。
     '''
 
     def __init__(self) -> None:
@@ -39,7 +39,7 @@ class NanoCausalEmbedder(nn.Module):
 
 class EfficientDifferentialSkipAttention(nn.Module):
     '''
-    #* Combine causal attention with a depthwise causal convolution branch, as in Yokoyama.
+    #* Yokoyama と同じく、causal な attention と、depthwise の causal な畳み込みの枝を組み合わせる。
     '''
 
     def __init__(self) -> None:
@@ -73,7 +73,7 @@ class EfficientDifferentialSkipAttention(nn.Module):
 
 def make_score_mask(input_mask: torch.Tensor) -> torch.Tensor:
     '''
-    #* Preserve Yokoyama's padding-mask behavior without tensor-dependent Python slicing.
+    #* Yokoyama のパディングのマスクの動きを、テンソルの値で決まる Python のスライスを使わずに再現する。
     '''
 
     tokens  = input_mask.shape[1]
@@ -84,8 +84,8 @@ def make_score_mask(input_mask: torch.Tensor) -> torch.Tensor:
 
 class Hotaru(nn.Module):
     '''
-    #* Hold the Yokoyama architecture with MAX_LENGTH positions and EPSILON in every RMSNorm.
-    #! Other architecture dimensions remain the same as Yokoyama. Checkpoints require matching dimensions.
+    #* Yokoyama の構造で、位置を MAX_LENGTH 個にし、すべての RMSNorm の eps を EPSILON にしたモデル。
+    #! ほかの構造の次元は Yokoyama と同じ。チェックポイントは、次元が合っているものしか読めない。
     '''
 
     def __init__(self) -> None:

@@ -1,5 +1,5 @@
 # @file glint2.py
-# @brief Glint-2 with the coda block of the official checkpoint, a model of 1.71M parameters
+# @brief 公式のチェックポイントにある coda のブロックを持つ Glint-2（パラメータ 1.71M のモデル）
 
 from torch    import nn
 from torch.nn import functional as F
@@ -27,10 +27,10 @@ INIT_STD         = 0.02
 
 class Glint2(nn.Module):
     '''
-    #* Hold Glint-2 with one more block (the coda) after the loops and before the last norm. The coda has its own weights and runs once, with no loop embedding and no LoRA.
-    #? Made by build_model() in model/build.py, with model.name = "glint2".
-    #! The official glint-2.pt has this block (coda_layers = 1, 1,710,049 parameters), though its model card says there are no layers outside the loop, and generate.py drops its keys as stale. With these weights, this model gives a WikiText-2 byte perplexity of 3.126 by evaluate.py of Glint-2.3-Mini, and the published value is 3.127. Without the coda it is 3.501.
-    #! The place and the inputs of the coda are the same as in forward() of infer.py in Glint-Research/Glint-2.3: after the loops, with no loop embedding and no LoRA, and before final_norm.
+    #* ループのあと、最後の norm の前に、もう 1 つのブロック（coda）を持つ Glint-2。coda は自分の重みを持ち、ループの埋め込みも LoRA も使わずに 1 回だけ動く。
+    #? model/build.py の build_model() が、model.name = "glint2" のときに作る。
+    #! 公式の glint-2.pt はこのブロックを持つ（coda_layers = 1、パラメータ 1,710,049 個）。モデルカードにはループの外の層はないと書いてあり、generate.py はこのキーを古いものとして捨てる。この重みのとき、Glint-2.3-Mini の evaluate.py で測った WikiText-2 のバイト単位の perplexity は 3.126 で、公開された値は 3.127 である。coda がないと 3.501 になる。
+    #! coda の場所と入力は、Glint-Research/Glint-2.3 の infer.py の forward() と同じにしている。ループのあと、ループの埋め込みも LoRA も使わず、final_norm の前に置く。
     '''
     
     cos   : torch.Tensor
@@ -39,8 +39,8 @@ class Glint2(nn.Module):
     
     def __init__(self) -> None:
         '''
-        #* Make the layers of Glint2 and the coda block, and set the first weights of the coda.
-        #! The first weights of the coda are not published. They are the same as those of the shared block: normal with std 0.02, and std 0.02 / sqrt(2 * LOOPS) for out and down (which add to the residual).
+        #* Glint2 の層と coda のブロックを作り、coda の最初の重みを決める。
+        #! coda の最初の重みは公開されていない。共有のブロックと同じにする。平均 0、std 0.02 の正規分布で、残差に足す out と down だけ std 0.02 / sqrt(2 * LOOPS) にする。
         '''
         
         super().__init__()
@@ -68,7 +68,7 @@ class Glint2(nn.Module):
                 nn.init.normal_(parameter, std=INIT_STD / math.sqrt(2 * LOOPS) if residual else INIT_STD)
         self.coda = Glint2Block(DIM, NUM_HEADS, FFN_HIDDEN)
         
-        # Set the first weights of the coda (the norm weights start at 1)
+        # coda の最初の重みを決める（norm の重みは 1 から始める）
         for name, parameter in self.coda.named_parameters():
             if parameter.ndim == 2:
                 nn.init.normal_(parameter, std=INIT_STD / math.sqrt(2 * LOOPS) if name in ("out.weight", "down.weight") else INIT_STD)
@@ -76,24 +76,24 @@ class Glint2(nn.Module):
     
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         '''
-        #* Return the logits of the next token at each position, of shape (batch, tokens, VOCAB_SIZE).
-        #? Called from train.py and evaluate.py in utils/trainer/, and from generate.py and score.py in utils/validator/.
-        #! attention_mask is not used, as in Glint2. For the CUDA graph, no tensor value is read on the CPU here.
+        #* 各位置で、次のトークンの logits を返す。形は (batch, tokens, VOCAB_SIZE)。
+        #? utils/trainer/ の train.py と evaluate.py、utils/validator/ の generate.py と score.py から呼ぶ。
+        #! Glint2 と同じく、attention_mask は使わない。CUDA graph のため、ここではテンソルの値を CPU 側で読まない。
         '''
         
-        # Take the RoPE tables of the first positions, and the window mask only when a token can be farther than the window
+        # 最初の位置の分の RoPE の表を取り出す。窓より遠いトークンがありうるときだけ、窓のマスクも取り出す
         tokens = input_ids.shape[1]
         cos    = self.cos[:tokens]
         sin    = self.sin[:tokens]
         window = self.window[:tokens, :tokens] if tokens > ATTENTION_WINDOW else None
         
-        # Run the shared block LOOPS times
+        # 共有のブロックを LOOPS 回動かす
         x = self.embed(input_ids)
         for loop in range(LOOPS):
             x     = x + self.loop_embed.weight[loop]
             delta = self.lora_up[loop](self.lora_down[loop](x))
             x     = self.shared(x, cos, sin, delta, window)
         
-        # Run the coda once with no LoRA change, and turn the last hidden states into logits with the embedding weights
+        # coda を LoRA の変化なしで 1 回動かし、最後の隠れ状態を埋め込みの重みで logits に変える
         x = self.coda(x, cos, sin, x.new_zeros(()), window)
         return F.linear(self.final_norm(x), self.embed.weight)

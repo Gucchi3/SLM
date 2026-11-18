@@ -1,22 +1,22 @@
 # @file test_hybrid_lm.py
-# @brief Tests of the loop of model/hybrid/hybrid_lm.py against the blocks run one by one by hand
+# @brief model/hybrid/hybrid_lm.py のループを、ブロックを 1 つずつ手で動かした結果と比べるテスト
 # @author Kohei Yamaguchi, Claude
 
 import torch
 
 from model.hybrid import HybridLm, HybridSpec, LoopSpec
 
-# A small model with all four mixers, so the tests run fast on the CPU
+# CPU でテストが速く終わるように、4 種類の mixer をすべて持つ小さなモデルを使う
 SPEC = HybridSpec(mixers="gcawc", dim=32, heads=4, kv_heads=2, head_dim=8, window=4, mlp_hidden=48, gdn_heads=2, gdn_dim=8, vocab_size=50, max_length=128)
 
 
 
 def test_hybrid_lm_without_loop_matches_blocks_in_order() -> None:
     '''
-    #* With no loop, and with a loop of times 1 at any place, the logits are the same as the blocks run once in order.
+    #* ループがないときと、どこかに times 1 のループがあるときは、ブロックを順に 1 回ずつ動かしたのと同じ logits になる。
     '''
     
-    # The blocks run by hand: embedding, each block once, the final norm, and the output layer
+    # ブロックを手で動かす: 埋め込み、各ブロックを 1 回、最後の norm、出力の層
     torch.manual_seed(0)
     ids   = torch.randint(0, SPEC.vocab_size, (2, 21))
     model = HybridLm(SPEC, LoopSpec()).eval()
@@ -27,7 +27,7 @@ def test_hybrid_lm_without_loop_matches_blocks_in_order() -> None:
             x = block(x, rope)
         reference = model.head(model.norm(x))
         
-        # The same weights with no loop, and with loops of times 1
+        # 同じ重みで、ループがないときと、times 1 のループがあるとき
         for loop in (LoopSpec(), LoopSpec(start=1, end=4, times=1), LoopSpec(start=0, end=5, times=1)):
             model.loop = loop
             assert torch.equal(model(ids, ids), reference), loop
@@ -36,10 +36,10 @@ def test_hybrid_lm_without_loop_matches_blocks_in_order() -> None:
 
 def test_hybrid_lm_loop_matches_unrolled_blocks() -> None:
     '''
-    #* A loop over blocks 1 to 3 run 3 times is the same as those blocks written out 3 times, in training and in evaluation.
+    #* ブロック 1〜3 を 3 回くり返すループは、学習のときも評価のときも、そのブロックを 3 回書き並べたのと同じになる。
     '''
     
-    # The blocks run by hand: block 0, then blocks 1, 2, 3 three times, then block 4
+    # ブロックを手で動かす: ブロック 0、次にブロック 1、2、3 を 3 回、次にブロック 4
     torch.manual_seed(1)
     ids   = torch.randint(0, SPEC.vocab_size, (2, 19))
     model = HybridLm(SPEC, LoopSpec(start=1, end=4, times=3))
@@ -50,7 +50,7 @@ def test_hybrid_lm_loop_matches_unrolled_blocks() -> None:
             x = model.blocks[index](x, rope)
         reference = model.head(model.norm(x))
         
-        # The same logits in both modes, and not the same as one pass (so the loop really ran)
+        # どちらのモードでも logits が同じで、1 回だけ通したものとは違う（ループが本当に動いた）
         assert torch.equal(model.train()(ids, ids), reference)
         assert torch.equal(model.eval()(ids, ids), reference)
         model.loop = LoopSpec(start=1, end=4, times=1)
@@ -60,10 +60,10 @@ def test_hybrid_lm_loop_matches_unrolled_blocks() -> None:
 
 def test_hybrid_lm_window_sees_last_window_tokens() -> None:
     '''
-    #* In a model of "w" blocks only, the output at a token does not change with the token window places before it, and changes with the token window - 1 places before it.
+    #* "w" のブロックだけのモデルでは、あるトークンの出力は、window 個前のトークンを変えても変わらず、window - 1 個前のトークンを変えると変わる。
     '''
     
-    # One block with window 4: the token at 10 sees the tokens 7 to 10
+    # window 4 のブロック 1 つ: 位置 10 のトークンは、位置 7〜10 のトークンを見る
     torch.manual_seed(4)
     spec  = HybridSpec(mixers="w", dim=32, heads=4, kv_heads=1, head_dim=8, window=4, mlp_hidden=48, vocab_size=50, max_length=64)
     model = HybridLm(spec, LoopSpec()).eval()
